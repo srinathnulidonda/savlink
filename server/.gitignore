@@ -1,0 +1,17 @@
+# Environment
+.env
+.env.*
+*.env
+secrets.json
+
+# Flask/Python specific
+__pycache__/
+*.pyc
+.env
+venv/
+.venv/
+instance/
+*.db
+*.sqlite
+.coverage
+.pytest_cache/

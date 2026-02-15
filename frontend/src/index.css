@@ -1,0 +1,262 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --primary: 113 60 207;
+    --primary-light: 129 80 217;
+  }
+
+  * {
+    @apply border-gray-800;
+  }
+
+  html {
+    @apply antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "ss06" 1;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body {
+    @apply bg-black text-white;
+    overflow-x: hidden;
+    /* Prevent horizontal scroll on mobile */
+  }
+
+  ::selection {
+    @apply bg-primary/20 text-white;
+  }
+}
+
+@layer components {
+
+  /* Buttons */
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary px-5 py-2.5 text-sm text-white hover:bg-primary-light active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply btn border border-gray-800 bg-gray-950/50 px-5 py-2.5 text-sm text-gray-100 hover:bg-gray-900 hover:border-gray-700;
+  }
+
+  .btn-ghost {
+    @apply btn px-4 py-2 text-sm text-gray-400 hover:bg-gray-900 hover:text-white;
+  }
+
+  /* Cards */
+  .card {
+    @apply rounded-xl border border-gray-900 bg-gray-950/50 backdrop-blur-sm;
+  }
+
+  /* Text Gradient */
+  .text-gradient {
+    @apply bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent;
+  }
+
+  /* Glass Effect */
+  .glass {
+    @apply bg-gray-950/30 backdrop-blur-md;
+  }
+
+  /* Glow Line */
+  .glow-line {
+    @apply absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent;
+  }
+
+  /* Mobile FAB Styles */
+  .mobile-fab {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+@layer utilities {
+
+  /* Hide Scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Text Balance for Better Typography */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Subtle Grid Background */
+  .bg-grid-subtle {
+    background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.01'%3E%3Cpath d='M0 40L40 0H20L0 20M40 40V20L20 40'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /* Safe Area Support */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-left {
+    padding-left: env(safe-area-inset-left);
+  }
+
+  .safe-area-right {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .safe-area-all {
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+  }
+
+  /* Animations */
+  @keyframes pulse-scale {
+
+    0%,
+    100% {
+      transform: scale(1);
+    }
+
+    50% {
+      transform: scale(1.05);
+    }
+  }
+
+  .animate-pulse-scale {
+    animation: pulse-scale 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}
+
+/* Safe area support for devices with notches and gesture navigation */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .mobile-fab-safe {
+    /* Safe area styles will be applied automatically by the component */
+  }
+}
+
+/* Enhanced mobile support */
+@media screen and (max-width: 768px) {
+
+  /* Prevent zoom on input focus for iOS */
+  input[type="text"],
+  input[type="email"],
+  input[type="url"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* Better touch targets */
+  button,
+  .btn,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Custom scrollbar for mobile webkit browsers */
+  ::-webkit-scrollbar {
+    width: 3px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* Accessibility: Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+
+  .mobile-fab,
+  .mobile-fab *,
+  .reduce-motion * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .mobile-fab {
+    border: 2px solid currentColor;
+  }
+}
+
+/* Dark mode enhancements (since your app is dark by default) */
+@media (prefers-color-scheme: dark) {
+
+  /* Additional dark mode specific styles if needed */
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+  }
+}
+
+/* Print styles */
+@media print {
+
+  .mobile-fab,
+  .btn-primary,
+  .btn-secondary {
+    display: none !important;
+  }
+}
+
+/* Focus visible for better keyboard navigation */
+.btn:focus-visible,
+.mobile-fab:focus-visible {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
+}
+
+/* Loading states */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin 2s linear infinite;
+}
+
+/* Mobile-specific button adjustments */
+@media screen and (max-width: 640px) {
+
+  .btn-primary,
+  .btn-secondary {
+    @apply px-4 py-2 text-xs;
+  }
+}

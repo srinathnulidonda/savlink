@@ -1,0 +1,19 @@
+# requirements.txt
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+Flask-CORS
+SQLAlchemy
+alembic
+psycopg2-binary
+gunicorn
+redis
+firebase-admin
+python-dotenv
+sib-api-v3-sdk
+requests
+aiohttp
+beautifulsoup4
+lxml
+html5lib
+qrcode[pil]

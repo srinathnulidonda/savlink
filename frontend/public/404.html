@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Redirecting... | Savlink</title>
+    <script>
+        // Enhanced SPA redirect handler
+        (function () {
+            var path = window.location.pathname;
+            var search = window.location.search;
+            var hash = window.location.hash;
+
+            // Don't redirect API calls or static assets
+            if (path.startsWith('/api/') ||
+                path.startsWith('/auth/') ||
+                path.startsWith('/r/') ||
+                path.includes('.')) {
+                // Show actual 404 for these
+                document.body.innerHTML = '<h1>404 - Not Found</h1><p>The requested resource could not be found.</p>';
+                return;
+            }
+
+            // Redirect SPA routes to index with path in search params
+            var redirect = '/?redirect=' + encodeURIComponent(path + search + hash);
+            window.location.replace(redirect);
+        })();
+    </script>
+</head>
+
+<body>
+    <div style="text-align: center; margin-top: 50px;">
+        <h2>Redirecting...</h2>
+        <p>If you're not redirected automatically, <a href="/">click here</a>.</p>
+    </div>
+</body>
+
+</html>
