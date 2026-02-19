@@ -3,7 +3,6 @@ from datetime import datetime
 from app.extensions import db
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
-from sqlalchemy import foreign  # ✅ CRITICAL: Import foreign function
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,12 +30,14 @@ class Link(db.Model):
     soft_deleted = db.Column(db.Boolean, default=False, nullable=False, index=True)
     click_count = db.Column(db.Integer, default=0, nullable=False)
     metadata_ = db.Column('metadata', JSONB, default=dict)
+    
+    # ✅ ADD THIS COLUMN
+    password_hash = db.Column(db.String(255), nullable=True)
 
     # Relationships
     user = db.relationship('User', backref=db.backref('links', lazy='dynamic'))
     folder = db.relationship('Folder', backref=db.backref('links', lazy='dynamic'))
     
-    # ✅ SIMPLIFIED: Let SQLAlchemy auto-detect the joins
     tags = relationship(
         'Tag',
         secondary='link_tags',

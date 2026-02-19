@@ -1,3 +1,5 @@
+# server/app/dashboard/routes.py
+
 from flask import request, g
 from app.dashboard import dashboard_bp
 from app.auth.middleware import require_auth
