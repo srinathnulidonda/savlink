@@ -10,7 +10,7 @@ export default function Sidebar({
     user,
     stats,
     activeView,
-    onViewChange,
+    onViewChange, // ✅ Add this prop
     collections,
     activeCollection,
     onCollectionChange,
@@ -18,9 +18,7 @@ export default function Sidebar({
     onAddLink
 }) {
     const handleCreateCollection = async (collectionData) => {
-        // This would typically call your collections service
         console.log('Creating collection:', collectionData);
-        // Add your collection creation logic here
     };
 
     return (
@@ -31,9 +29,11 @@ export default function Sidebar({
             {/* Quick Actions Section */}
             <QuickActions
                 onOpenCommandPalette={onOpenCommandPalette}
+                onAddLink={onAddLink}
+                onAddCollection={() => {}} // Add collection handler if needed
             />
 
-            {/* Navigation Section */}
+            {/* ✅ Pass onViewChange to Navigation */}
             <Navigation
                 stats={stats}
                 activeView={activeView}

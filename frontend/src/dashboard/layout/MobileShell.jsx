@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import HeaderMobile from '../components/header/HeaderMobile';
 import MobileMenu from './MobileMenu';
-import ActivityBar from './ActivityBar';
-import MobileAddButton from '../components/header/MobileAddButton';
+import MobileAddButton from '../components/common/MobileAddButton';
 
 export default function MobileShell({
     user,
@@ -58,14 +57,11 @@ export default function MobileShell({
                 </div>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-y-auto bg-black">
+                <div className="flex-1 overflow-y-auto bg-black safe-area-bottom">
                     {children}
                 </div>
 
-                {/* Activity Bar */}
-                <div className="safe-area-bottom">
-                    <ActivityBar />
-                </div>
+                {/* ✅ ActivityBar removed */}
             </div>
 
             {/* Floating Add Button */}

@@ -29,18 +29,13 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
 
-  // Initialize auth state
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
         if (firebaseUser) {
-          // Get Firebase token
           const token = await firebaseUser.getIdToken();
-          
-          // Set token in API service
           apiService.setAuthToken(token);
           
-          // Create user object
           const userData = {
             uid: firebaseUser.uid,
             email: firebaseUser.email,
@@ -49,22 +44,17 @@ export function AuthProvider({ children }) {
             email_verified: firebaseUser.emailVerified,
           };
           
-          // Store user data
           localStorage.setItem('user', JSON.stringify(userData));
           setUser(userData);
-          
           console.log('🔐 User authenticated:', userData.email);
         } else {
-          // Clear auth state
           apiService.removeAuthToken();
           localStorage.removeItem('user');
           setUser(null);
-          
           console.log('🔓 User signed out');
         }
       } catch (error) {
         console.error('🔥 Auth state change error:', error);
-        // Clear potentially corrupted state
         apiService.removeAuthToken();
         localStorage.removeItem('user');
         setUser(null);
@@ -74,7 +64,6 @@ export function AuthProvider({ children }) {
       }
     });
 
-    // Check for existing token on startup
     const existingToken = apiService.getAuthToken();
     const existingUser = localStorage.getItem('user');
     
@@ -94,7 +83,6 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, [initialized]);
 
-  // Sign in with email and password
   const signIn = async (email, password) => {
     try {
       setLoading(true);
@@ -132,13 +120,11 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Sign up with email and password
   const signUp = async (email, password, name) => {
     try {
       setLoading(true);
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Update profile with name
       if (name) {
         await updateProfile(result.user, { displayName: name });
       }
@@ -170,7 +156,6 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Sign in with Google
   const signInWithGoogle = async () => {
     try {
       setLoading(true);
@@ -185,7 +170,6 @@ export function AuthProvider({ children }) {
       console.error('🔥 Google sign in error:', error);
       
       if (error.code === 'auth/popup-closed-by-user') {
-        // User closed popup - don't show error
         return { success: false, error: null };
       }
       
@@ -197,7 +181,6 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Sign out
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
@@ -211,7 +194,6 @@ export function AuthProvider({ children }) {
     }
   };
 
-  // Reset password
   const resetPassword = async (email) => {
     try {
       await sendPasswordResetEmail(auth, email);
@@ -254,5 +236,3 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
-
-export default AuthContext;

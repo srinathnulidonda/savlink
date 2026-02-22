@@ -1,16 +1,39 @@
-// src/dashboard/DashboardApp.jsx 
+// src/dashboard/DashboardApp.jsx
 
 import { useState, useEffect, useRef } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import DashboardLayout from './layout/DashboardLayout';
+import HomePage from './pages/home/HomePage';
+import MyFiles from './pages/myfiles/MyFiles';
 import LinksView from './components/links/LinksView';
 import AddLinkModal from './modals/AddLink/AddLinkModal';
 import CommandPalette from './modals/CommandPalette/CommandPalette';
-import LinksService from '../services/links.service'; // ✅ For individual link operations
-import DashboardService from '../services/dashboard.service'; // ✅ For dashboard data
+import DashboardService from '../services/dashboard.service';
+import LinksService from '../services/links.service';
 import { useAuth } from '../auth/context/AuthContext';
 import toast from 'react-hot-toast';
+
+// Wrapper component to extract view from URL params
+function LinksPageWrapper({ links, searchQuery, onUpdateLink, onDeleteLink, onPinLink, onArchiveLink, onRefresh, loading }) {
+    const { filterView } = useParams();
+    const view = filterView || 'all';
+
+    return (
+        <LinksView
+            links={links}
+            view={view}
+            searchQuery={searchQuery}
+            viewMode={window.innerWidth >= 768 ? 'grid' : 'list'}
+            onUpdateLink={onUpdateLink}
+            onDeleteLink={onDeleteLink}
+            onPinLink={onPinLink}
+            onArchiveLink={onArchiveLink}
+            onRefresh={onRefresh}
+            loading={loading}
+        />
+    );
+}
 
 export default function Dashboard() {
     const { user } = useAuth();
@@ -29,17 +52,14 @@ export default function Dashboard() {
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
     const [dataLoading, setDataLoading] = useState(true);
 
-    // Prevent duplicate fetches
     const fetchingRef = useRef(false);
     const lastFetchParamsRef = useRef({ view: '', searchQuery: '' });
 
-    // Fetch data when component mounts or view/search changes
+    // Fetch data when view or search changes
     useEffect(() => {
-        // Check if params actually changed
         if (
             lastFetchParamsRef.current.view === view &&
-            lastFetchParamsRef.current.searchQuery === searchQuery &&
-            fetchingRef.current
+            lastFetchParamsRef.current.searchQuery === searchQuery
         ) {
             return;
         }
@@ -49,33 +69,23 @@ export default function Dashboard() {
     }, [view, searchQuery]);
 
     const fetchDashboardData = async () => {
-        // Prevent duplicate requests
         if (fetchingRef.current) return;
         fetchingRef.current = true;
 
         try {
             setDataLoading(true);
 
-            // Fetch data in parallel using DashboardService
             const [linksResult, statsResult] = await Promise.allSettled([
-                DashboardService.getLinks({ view, search: searchQuery }), // ✅ Using DashboardService
-                DashboardService.getStats() // ✅ Using DashboardService
+                DashboardService.getLinks({ view, search: searchQuery }),
+                DashboardService.getStats()
             ]);
 
-            // Handle links
             if (linksResult.status === 'fulfilled' && linksResult.value?.success) {
-                const linksData = linksResult.value.data?.links || [];
-                setLinks(linksData);
-            } else if (linksResult.reason?.message?.includes('401')) {
-                // Token expired
-                navigate('/login', { replace: true });
-                return;
+                setLinks(linksResult.value.data?.links || []);
             } else {
-                console.error('Links fetch failed:', linksResult.reason);
                 setLinks([]);
             }
 
-            // Handle stats
             if (statsResult.status === 'fulfilled' && statsResult.value?.success) {
                 const statsData = statsResult.value.data?.stats;
                 if (statsData) {
@@ -87,14 +97,17 @@ export default function Dashboard() {
                     });
                 }
             }
-
         } catch (error) {
             console.error('Dashboard data fetch error:', error);
-            toast.error('Failed to load data');
         } finally {
             setDataLoading(false);
             fetchingRef.current = false;
         }
+    };
+
+    // Handle view change from navigation
+    const handleViewChange = (newView) => {
+        setView(newView);
     };
 
     // Keyboard shortcuts
@@ -122,25 +135,12 @@ export default function Dashboard() {
         try {
             const result = await LinksService.createLink(linkData);
             if (result?.success && result?.data) {
-                // Optimistically update UI
                 setLinks([result.data, ...links]);
                 setIsAddLinkOpen(false);
                 toast.success('Link saved successfully');
-
-                // Update stats in background
-                DashboardService.getStats().then(statsResult => {
-                    if (statsResult?.success && statsResult?.data?.stats) {
-                        setStats({
-                            all: statsResult.data.stats.all || 0,
-                            recent: statsResult.data.stats.recent || 0,
-                            starred: statsResult.data.stats.starred || 0,
-                            archive: statsResult.data.stats.archive || 0,
-                        });
-                    }
-                });
+                fetchDashboardData();
             }
         } catch (error) {
-            console.error('Error creating link:', error);
             toast.error(error.message || 'Failed to save link');
         }
     };
@@ -149,41 +149,22 @@ export default function Dashboard() {
         try {
             const result = await LinksService.updateLink(linkId, updates);
             if (result?.success && result?.data) {
-                setLinks(links.map(link =>
-                    link.id === linkId ? result.data : link
-                ));
+                setLinks(links.map(link => link.id === linkId ? result.data : link));
                 toast.success('Link updated');
             }
         } catch (error) {
-            console.error('Error updating link:', error);
             toast.error(error.message || 'Failed to update link');
         }
     };
 
     const handleDeleteLink = async (linkId) => {
         try {
-            // Optimistically update UI
             setLinks(links.filter(link => link.id !== linkId));
-            toast.success('Link deleted');
-
-            // Delete in background
             await LinksService.deleteLink(linkId);
-
-            // Update stats in background
-            DashboardService.getStats().then(statsResult => {
-                if (statsResult?.success && statsResult?.data?.stats) {
-                    setStats({
-                        all: statsResult.data.stats.all || 0,
-                        recent: statsResult.data.stats.recent || 0,
-                        starred: statsResult.data.stats.starred || 0,
-                        archive: statsResult.data.stats.archive || 0,
-                    });
-                }
-            });
-        } catch (error) {
-            // Revert on error
+            toast.success('Link deleted');
             fetchDashboardData();
-            console.error('Error deleting link:', error);
+        } catch (error) {
+            fetchDashboardData();
             toast.error(error.message || 'Failed to delete link');
         }
     };
@@ -198,11 +179,8 @@ export default function Dashboard() {
                 await LinksService.pinLink(linkId);
                 toast.success('Link pinned');
             }
-
-            // Refresh to get updated order
             fetchDashboardData();
         } catch (error) {
-            console.error('Error toggling pin:', error);
             toast.error(error.message || 'Failed to update pin status');
         }
     };
@@ -210,13 +188,7 @@ export default function Dashboard() {
     const handleArchiveLink = async (linkId) => {
         try {
             const link = links.find(l => l.id === linkId);
-
-            // Optimistically update UI
-            if (view === 'archive' && !link?.archived) {
-                setLinks(links.filter(l => l.id !== linkId));
-            } else if (view !== 'archive' && link?.archived) {
-                setLinks(links.filter(l => l.id !== linkId));
-            }
+            setLinks(links.filter(l => l.id !== linkId));
 
             if (link?.archived) {
                 await LinksService.restoreLink(linkId);
@@ -225,13 +197,10 @@ export default function Dashboard() {
                 await LinksService.archiveLink(linkId);
                 toast.success('Link archived');
             }
-
-            // Refresh in background
             fetchDashboardData();
         } catch (error) {
-            console.error('Error archiving link:', error);
-            toast.error(error.message || 'Failed to archive link');
             fetchDashboardData();
+            toast.error(error.message || 'Failed to archive link');
         }
     };
 
@@ -240,21 +209,27 @@ export default function Dashboard() {
             user={user}
             stats={stats}
             activeView={view}
-            onViewChange={setView}
+            onViewChange={handleViewChange}
             onSearch={setSearchQuery}
             searchQuery={searchQuery}
             onAddLink={() => setIsAddLinkOpen(true)}
             onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         >
             <Routes>
+                {/* Home Page */}
+                <Route path="/" element={<HomePage />} />
+                <Route path="/home" element={<HomePage />} />
+
+                {/* My Files Page */}
+                <Route path="/my-files" element={<MyFiles />} />
+
+                {/* Link Views - All, Starred, Recent, Archive */}
                 <Route
-                    path="/"
+                    path="/links/:filterView"
                     element={
-                        <LinksView
+                        <LinksPageWrapper
                             links={links}
-                            view={view}
                             searchQuery={searchQuery}
-                            viewMode={window.innerWidth >= 768 ? 'grid' : 'list'}
                             onUpdateLink={handleUpdateLink}
                             onDeleteLink={handleDeleteLink}
                             onPinLink={handlePinLink}
@@ -264,11 +239,18 @@ export default function Dashboard() {
                         />
                     }
                 />
+
+                {/* Collections */}
                 <Route path="/collections/:id" element={<div>Collection View</div>} />
+
+                {/* Settings */}
                 <Route path="/settings" element={<div>Settings</div>} />
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
+                {/* Default - redirect to home */}
+                <Route path="*" element={<Navigate to="/dashboard/home" replace />} />
             </Routes>
 
+            {/* Global Modals */}
             <AnimatePresence>
                 {isAddLinkOpen && (
                     <AddLinkModal

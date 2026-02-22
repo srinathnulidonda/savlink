@@ -1,4 +1,4 @@
-// frontend/src/app/Providers.jsx
+// src/app/Providers.jsx - Update the Toaster configuration
 
 import { BrowserRouter } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -20,23 +20,36 @@ export default function Providers({ children }) {
         <Toaster
           position="top-right"
           toastOptions={{
-            duration: 4000,
+            duration: 3000,
             style: {
-              background: '#18181b',
-              color: '#fff',
-              border: '1px solid #27272a',
-              borderRadius: '0.5rem',
+              background: '#ffffff',
+              color: '#374151',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              fontSize: '14px',
+              padding: '12px 16px',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
             },
             success: {
+              style: {
+                background: '#ffffff',
+                color: '#059669',
+                border: '1px solid #d1fae5',
+              },
               iconTheme: {
-                primary: '#22c55e',
-                secondary: '#fff',
+                primary: '#059669',
+                secondary: '#ffffff',
               },
             },
             error: {
+              style: {
+                background: '#ffffff',
+                color: '#dc2626',
+                border: '1px solid #fecaca',
+              },
               iconTheme: {
-                primary: '#ef4444',
-                secondary: '#fff',
+                primary: '#dc2626',
+                secondary: '#ffffff',
               },
             },
           }}

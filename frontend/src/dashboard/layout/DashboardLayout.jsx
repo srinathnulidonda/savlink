@@ -6,9 +6,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import MobileShell from './MobileShell';
 import MobileMenu from './MobileMenu';
-import ActivityBar from './ActivityBar';
 import DashboardErrorBoundary from './DashboardErrorBoundary';
-import MobileAddButton from '../components/header/MobileAddButton';
 
 export default function DashboardLayout({
     user,
@@ -53,7 +51,7 @@ export default function DashboardLayout({
         setCollections(prev => [...prev, newCollection]);
     };
 
-    // Use MobileShell for mobile devices
+    // ✅ Pass navigation props correctly
     if (isMobile) {
         return (
             <DashboardErrorBoundary>
@@ -88,7 +86,7 @@ export default function DashboardLayout({
                     user={user}
                     stats={stats}
                     activeView={activeView}
-                    onViewChange={onViewChange}
+                    onViewChange={onViewChange} // ✅ Pass this prop
                     collections={collections}
                     activeCollection={activeCollection}
                     onCollectionChange={setActiveCollection}
@@ -119,8 +117,6 @@ export default function DashboardLayout({
                         )}
                     </div>
 
-                    {/* Activity Bar */}
-                    <ActivityBar />
                 </div>
             </div>
         </DashboardErrorBoundary>
