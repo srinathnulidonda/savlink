@@ -176,10 +176,12 @@ async function syncWithBackend(token, forceSync = false) {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Accept': 'application/json'
+        // ✅ REMOVED Content-Type (unnecessary for GET, triggers extra preflight)
       },
       signal: controller.signal,
-      credentials: 'include'
+      credentials: 'omit',       // ✅ FIX: was 'include' — we use Bearer tokens, NOT cookies
+      mode: 'cors'               // ✅ Explicit CORS mode
     })
 
     clearTimeout(timeoutId)
@@ -190,7 +192,6 @@ async function syncWithBackend(token, forceSync = false) {
       if (data.success && data.data) {
         const backendUser = data.data
         
-        // Merge Firebase data with backend data
         _currentUser = {
           ...backendUser,
           email_verified: auth.currentUser?.emailVerified ?? backendUser.email_verified,
@@ -206,14 +207,14 @@ async function syncWithBackend(token, forceSync = false) {
         return _currentUser
       }
     } else if (response.status === 401) {
-      // Token invalid on backend - try refresh
       const newToken = await refreshToken(true)
       if (!newToken) {
         await handleSignOut('backend_auth_failed')
         return null
       }
-      // Don't retry here to avoid infinite loops
       console.warn('[Auth] Backend returned 401, token refreshed for next request')
+    } else {
+      console.warn(`[Auth] Backend sync returned ${response.status}`)
     }
 
     return _currentUser

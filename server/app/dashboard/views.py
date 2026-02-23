@@ -1,545 +1,364 @@
 # server/app/dashboard/views.py
+# Query building, filtering, sorting, pagination, and stats
 
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
-from sqlalchemy import and_, or_, func, desc, case
+from sqlalchemy import and_, or_, func, desc, asc, text
+from sqlalchemy.orm import joinedload
 from app.models import Link, Folder, Tag, LinkTag
-from app.extensions import redis_client
-from app.links.queries import apply_search, paginate_cursor
-from app.folders.system import get_my_files_scope_query, is_system_folder
-from app.utils.ranking import rank_links_by_relevance, rank_by_engagement
-import json
+from app.extensions import db
 import logging
 
 logger = logging.getLogger(__name__)
 
-VALID_VIEWS = {'all', 'recent', 'starred', 'pinned', 'archive', 'expired', 'trending'}
+# ─── Constants ────────────────────────────────────────────────────────
+
+VALID_VIEWS = {'all', 'recent', 'starred', 'pinned', 'archive', 'expired'}
+
+SORT_COLUMNS = {
+    'created_at': Link.created_at,
+    'updated_at': Link.updated_at,
+    'title': Link.title,
+    'click_count': Link.click_count,
+}
+
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 
-class DashboardEngine:
-    """Advanced dashboard engine with caching and intelligence"""
-    
-    def __init__(self, user_id: str):
-        self.user_id = user_id
-        self.cache_prefix = f"dashboard:{user_id}"
-    
-    def get_intelligent_links(
-        self,
-        view: str = 'all',
-        search: Optional[str] = None,
-        cursor: Optional[str] = None,
-        limit: int = DEFAULT_LIMIT,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> Tuple[List[Link], Optional[str], Dict[str, Any]]:
-        """Get intelligently ranked and filtered links"""
-        
-        # Validate parameters
-        if view not in VALID_VIEWS:
-            view = 'all'
-        limit = min(max(1, limit), MAX_LIMIT)
-        filters = filters or {}
-        
-        # Check cache for expensive views
-        cache_key = None
-        if not search and not cursor and view in ['trending', 'all']:
-            cache_key = self._build_cache_key(view, filters, limit)
-            cached = self._get_cached_results(cache_key)
-            if cached:
-                return cached['links'], cached['next_cursor'], cached['meta']
-        
-        # Build query based on view
-        query = self._build_view_query(view, filters)
-        
-        # Apply search if provided
-        if search:
-            query = apply_search(query, search)
-        
-        # Get results with pagination
-        links, next_cursor = paginate_cursor(query, cursor, limit)
-        
-        # Apply intelligent ranking for certain views
-        if view in ['trending', 'all'] and not search:
-            links = self._apply_intelligent_ranking(links, view)
-        elif search:
-            links = rank_links_by_relevance(links, search)
-        
-        # Build metadata
-        meta = self._build_meta(view, search, filters, links, next_cursor)
-        
-        # Cache results if appropriate
-        if cache_key:
-            self._cache_results(cache_key, {
-                'links': links,
-                'next_cursor': next_cursor,
-                'meta': meta
-            })
-        
-        return links, next_cursor, meta
-    
-    def _build_view_query(self, view: str, filters: Dict[str, Any]):
-        """Build base query for view with filters"""
-        # Start with base query
-        if filters.get('system_folder') == 'my_files':
-            query = get_my_files_scope_query(self.user_id)
-        else:
-            query = Link.query.filter(
-                Link.user_id == self.user_id,
-                Link.soft_deleted == False
-            )
-        
-        # Apply view-specific filters
-        if view == 'all':
-            query = query.filter(Link.archived_at.is_(None))
-        elif view == 'recent':
-            cutoff = datetime.utcnow() - timedelta(days=7)
-            query = query.filter(
-                Link.archived_at.is_(None),
-                Link.created_at >= cutoff
-            )
-        elif view == 'starred':
-            query = query.filter(
-                Link.starred == True,
-                Link.archived_at.is_(None)
-            )
-        elif view == 'pinned':
-            query = query.filter(
-                Link.pinned == True,
-                Link.archived_at.is_(None)
-            )
-        elif view == 'archive':
-            query = query.filter(Link.archived_at.isnot(None))
-        elif view == 'expired':
-            query = query.filter(
-                Link.link_type == 'shortened',
-                Link.expires_at.isnot(None),
-                Link.expires_at <= datetime.utcnow()
-            )
-        elif view == 'trending':
-            # Links with recent activity
-            week_ago = datetime.utcnow() - timedelta(days=7)
-            query = query.filter(
-                Link.archived_at.is_(None),
-                or_(
-                    Link.updated_at >= week_ago,
-                    Link.click_count > 0
-                )
-            )
-        
-        # Apply additional filters
-        query = self._apply_filters(query, filters)
-        
-        # Default ordering (will be overridden by intelligent ranking for some views)
-        if view == 'trending':
-            query = query.order_by(
-                desc(Link.click_count),
-                desc(Link.updated_at)
-            )
-        elif view in ['starred', 'pinned']:
-            query = query.order_by(
-                desc(Link.pinned_at),
-                desc(Link.created_at)
-            )
-        else:
-            query = query.order_by(
-                desc(Link.pinned),
-                desc(Link.starred),
-                desc(Link.created_at)
-            )
-        
-        return query
-    
-    def _apply_filters(self, query, filters: Dict[str, Any]):
-        """Apply advanced filters to query"""
-        # Folder filters
-        if filters.get('folder_id'):
-            query = query.filter(Link.folder_id == filters['folder_id'])
-        elif filters.get('unassigned_only'):
-            query = query.filter(Link.folder_id.is_(None))
-        
-        # Status filters
-        if filters.get('starred_only'):
-            query = query.filter(Link.starred == True)
-        if filters.get('pinned_only'):
-            query = query.filter(Link.pinned == True)
-        if filters.get('active_only') is not None:
-            query = query.filter(Link.is_active == filters['active_only'])
-        
-        # Link type filter
-        if filters.get('link_type'):
-            query = query.filter(Link.link_type == filters['link_type'])
-        
-        # Tag filters
-        if filters.get('tag_ids'):
-            for tag_id in filters['tag_ids']:
-                query = query.join(LinkTag).filter(LinkTag.tag_id == tag_id)
-        
-        # Date range filters
-        if filters.get('created_after'):
-            query = query.filter(Link.created_at >= filters['created_after'])
-        if filters.get('created_before'):
-            query = query.filter(Link.created_at <= filters['created_before'])
-        
-        # Domain filter
-        if filters.get('domain'):
-            query = query.filter(
-                func.lower(Link.original_url).like(f'%{filters["domain"].lower()}%')
-            )
-        
-        # Click count filters (for short links)
-        if filters.get('min_clicks') is not None:
-            query = query.filter(Link.click_count >= filters['min_clicks'])
-        
-        return query
-    
-    def _apply_intelligent_ranking(self, links: List[Link], view: str) -> List[Link]:
-        """Apply intelligent ranking algorithms"""
-        if view == 'trending':
-            return rank_by_engagement(links, days=7)
-        elif view == 'all':
-            # Mix of recent, important, and engaging content
-            from app.utils.ranking import calculate_importance_score
-            
-            scored_links = []
-            for link in links:
-                score = calculate_importance_score(link)
-                
-                # Boost recently updated links
-                if link.updated_at:
-                    days_old = (datetime.utcnow() - link.updated_at).days
-                    if days_old <= 3:
-                        score *= 1.2
-                
-                scored_links.append((link, score))
-            
-            # Sort by score
-            scored_links.sort(key=lambda x: x[1], reverse=True)
-            return [link for link, _ in scored_links]
-        
-        return links
-    
-    def _build_cache_key(self, view: str, filters: Dict[str, Any], limit: int) -> str:
-        """Build cache key for results"""
-        filter_hash = hash(str(sorted(filters.items())))
-        return f"{self.cache_prefix}:view:{view}:{filter_hash}:{limit}"
-    
-    def _get_cached_results(self, cache_key: str) -> Optional[Dict]:
-        """Get cached results"""
-        if not redis_client.available:
-            return None
-        
-        try:
-            cached_json = redis_client.get(cache_key)
-            if cached_json:
-                cached_data = json.loads(cached_json)
-                
-                # Reconstruct Link objects (basic version)
-                link_ids = cached_data.get('link_ids', [])
-                if link_ids:
-                    links = Link.query.filter(Link.id.in_(link_ids)).all()
-                    # Maintain order
-                    link_map = {link.id: link for link in links}
-                    ordered_links = [link_map[lid] for lid in link_ids if lid in link_map]
-                    
-                    return {
-                        'links': ordered_links,
-                        'next_cursor': cached_data.get('next_cursor'),
-                        'meta': cached_data.get('meta', {})
-                    }
-        except (json.JSONDecodeError, TypeError, KeyError):
-            pass
-        
-        return None
-    
-    def _cache_results(self, cache_key: str, results: Dict) -> None:
-        """Cache results"""
-        if not redis_client.available:
-            return
-        
-        try:
-            # Cache only IDs and metadata, not full objects
-            cache_data = {
-                'link_ids': [link.id for link in results['links']],
-                'next_cursor': results['next_cursor'],
-                'meta': results['meta'],
-                'cached_at': datetime.utcnow().isoformat()
-            }
-            
-            # Cache for 5 minutes
-            redis_client.setex(cache_key, 300, json.dumps(cache_data, default=str))
-            
-        except Exception as e:
-            logger.warning(f"Failed to cache dashboard results: {e}")
-    
-    def _build_meta(
-        self, 
-        view: str, 
-        search: Optional[str], 
-        filters: Dict[str, Any], 
-        links: List[Link], 
-        next_cursor: Optional[str]
-    ) -> Dict[str, Any]:
-        """Build metadata for response"""
-        meta = {
-            'view': view,
-            'search': search,
-            'filters': filters,
-            'count': len(links),
-            'has_more': next_cursor is not None,
-            'next_cursor': next_cursor,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-        
-        # Add view-specific metadata
-        if view == 'trending':
-            meta['period'] = '7 days'
-        elif view == 'recent':
-            meta['period'] = '7 days'
-        
-        # Add filter summary
-        if filters:
-            meta['active_filters'] = {
-                key: value for key, value in filters.items() 
-                if value is not None and value != '' and value != []
-            }
-        
-        return meta
-    
-    def get_enhanced_stats(self) -> Dict[str, Any]:
-        """Get enhanced dashboard statistics with caching"""
-        cache_key = f"{self.cache_prefix}:stats"
-        
-        # Try cache first
-        if redis_client.available:
-            cached = redis_client.get(cache_key)
-            if cached:
-                try:
-                    return json.loads(cached)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-        
-        # Calculate fresh stats
-        stats = self._calculate_fresh_stats()
-        
-        # Cache for 10 minutes
-        if redis_client.available:
-            redis_client.setex(cache_key, 600, json.dumps(stats, default=str))
-        
-        return stats
-    
-    def _calculate_fresh_stats(self) -> Dict[str, Any]:
-        """Calculate fresh statistics"""
-        base_query = Link.query.filter(
-            Link.user_id == self.user_id,
-            Link.soft_deleted == False
-        )
-        
-        # Basic counts
-        total_links = base_query.count()
-        active_links = base_query.filter(
-            Link.archived_at.is_(None),
-            Link.is_active == True
-        ).count()
-        
-        # View-specific counts
-        counts = {
-            'all': base_query.filter(Link.archived_at.is_(None)).count(),
-            'starred': base_query.filter(
-                Link.starred == True,
-                Link.archived_at.is_(None)
-            ).count(),
-            'pinned': base_query.filter(
-                Link.pinned == True,
-                Link.archived_at.is_(None)
-            ).count(),
-            'archive': base_query.filter(Link.archived_at.isnot(None)).count(),
-            'unassigned': base_query.filter(
-                Link.folder_id.is_(None),
-                Link.archived_at.is_(None)
-            ).count()
-        }
-        
-        # Time-based stats
-        now = datetime.utcnow()
-        week_ago = now - timedelta(days=7)
-        month_ago = now - timedelta(days=30)
-        
-        this_week = base_query.filter(Link.created_at >= week_ago).count()
-        this_month = base_query.filter(Link.created_at >= month_ago).count()
-        
-        # Short link specific stats
-        short_links = base_query.filter(Link.link_type == 'shortened')
-        total_short_links = short_links.count()
-        total_clicks = short_links.with_entities(
-            func.sum(Link.click_count)
-        ).scalar() or 0
-        
-        # Expired short links
-        expired_links = short_links.filter(
-            Link.expires_at.isnot(None),
-            Link.expires_at <= now
-        ).count()
-        
-        # Links expiring soon (next 7 days)
-        expiring_soon = short_links.filter(
-            Link.expires_at.isnot(None),
-            Link.expires_at <= now + timedelta(days=7),
-            Link.expires_at > now
-        ).count()
-        
-        # Top domains
-        domain_stats = self._get_domain_stats()
-        
-        # Recent activity
-        recent_activity = self._get_recent_activity()
-        
-        return {
-            'overview': {
-                'total_links': total_links,
-                'active_links': active_links,
-                'total_short_links': total_short_links,
-                'total_clicks': total_clicks,
-                'this_week': this_week,
-                'this_month': this_month
-            },
-            'counts': counts,
-            'short_links': {
-                'total': total_short_links,
-                'expired': expired_links,
-                'expiring_soon': expiring_soon,
-                'total_clicks': total_clicks,
-                'avg_clicks': total_clicks / max(1, total_short_links)
-            },
-            'top_domains': domain_stats,
-            'recent_activity': recent_activity,
-            'generated_at': now.isoformat()
-        }
-    
-    def _get_domain_stats(self) -> List[Dict[str, Any]]:
-        """Get top domains by link count and clicks"""
-        links = Link.query.filter(
-            Link.user_id == self.user_id,
-            Link.soft_deleted == False,
-            Link.archived_at.is_(None)
-        ).all()
-        
-        domain_stats = {}
-        for link in links:
-            from app.utils.url import extract_domain
-            domain = extract_domain(link.original_url)
-            if domain:
-                if domain not in domain_stats:
-                    domain_stats[domain] = {
-                        'count': 0,
-                        'clicks': 0,
-                        'short_links': 0
-                    }
-                
-                domain_stats[domain]['count'] += 1
-                domain_stats[domain]['clicks'] += link.click_count
-                
-                if link.link_type == 'shortened':
-                    domain_stats[domain]['short_links'] += 1
-        
-        # Sort by link count
-        sorted_domains = sorted(
-            domain_stats.items(),
-            key=lambda x: x[1]['count'],
-            reverse=True
-        )
-        
-        return [
-            {
-                'domain': domain,
-                **stats
-            }
-            for domain, stats in sorted_domains[:10]
-        ]
-    
-    def _get_recent_activity(self) -> List[Dict[str, Any]]:
-        """Get recent activity summary"""
-        week_ago = datetime.utcnow() - timedelta(days=7)
-        
-        recent_links = Link.query.filter(
-            Link.user_id == self.user_id,
-            Link.soft_deleted == False,
-            or_(
-                Link.created_at >= week_ago,
-                Link.updated_at >= week_ago
-            )
-        ).order_by(desc(Link.updated_at)).limit(10).all()
-        
-        activities = []
-        for link in recent_links:
-            # Determine activity type
-            if link.created_at >= week_ago and (
-                link.updated_at is None or 
-                link.updated_at <= link.created_at + timedelta(seconds=1)
-            ):
-                activity_type = 'created'
-                timestamp = link.created_at
-            else:
-                activity_type = 'updated'
-                timestamp = link.updated_at
-            
-            activities.append({
-                'type': activity_type,
-                'link_id': link.id,
-                'title': link.title or extract_domain(link.original_url),
-                'link_type': link.link_type,
-                'timestamp': timestamp.isoformat() if timestamp else None
-            })
-        
-        return activities
 
-# Update existing function to use new engine
+# ─── Main Entry Point ────────────────────────────────────────────────
+
 def resolve_view(
     user_id: str,
     view: str = 'all',
     search: Optional[str] = None,
     cursor: Optional[str] = None,
     limit: int = DEFAULT_LIMIT,
-    system_folder: Optional[str] = None,
-    folder_id: Optional[int] = None,
-    tag_ids: Optional[List[int]] = None,
-    unassigned_only: bool = False,
-    starred_only: bool = False,
-    pinned_only: bool = False,
-    link_type: Optional[str] = None,
-) -> Tuple[List[Link], Optional[str], Dict]:
-    """Enhanced view resolution with intelligent features"""
-    
-    # Build filters
-    filters = {}
-    if system_folder:
-        filters['system_folder'] = system_folder
-    if folder_id:
-        filters['folder_id'] = folder_id
-    if tag_ids:
-        filters['tag_ids'] = tag_ids
-    if unassigned_only:
-        filters['unassigned_only'] = unassigned_only
-    if starred_only:
-        filters['starred_only'] = starred_only
-    if pinned_only:
-        filters['pinned_only'] = pinned_only
-    if link_type:
-        filters['link_type'] = link_type
-    
-    # Use enhanced dashboard engine
-    engine = DashboardEngine(user_id)
-    return engine.get_intelligent_links(view, search, cursor, limit, filters)
+    sort: str = 'created_at',
+    order: str = 'desc',
+    **filters,
+) -> Tuple[List[Link], Optional[str], Dict[str, Any]]:
+    """
+    Build and execute a filtered, sorted, paginated link query.
+
+    Returns (links, next_cursor, meta).
+    """
+    # Validate inputs
+    if view not in VALID_VIEWS:
+        view = 'all'
+    limit = max(1, min(limit, MAX_LIMIT))
+    if sort not in SORT_COLUMNS:
+        sort = 'created_at'
+    if order not in ('asc', 'desc'):
+        order = 'desc'
+
+    # Build query with eager loading
+    query = Link.query.options(
+        joinedload(Link.folder),
+    ).filter(
+        Link.user_id == user_id,
+        Link.soft_deleted == False,  # noqa: E712
+    )
+
+    # View filter
+    query = _apply_view(query, view)
+
+    # Additional filters
+    query = _apply_filters(query, filters)
+
+    # Search
+    if search:
+        query = _apply_search(query, search)
+
+    # Sorting
+    query = _apply_sort(query, sort, order, view)
+
+    # Pagination
+    links, next_cursor = _paginate(query, cursor, limit)
+
+    meta = {
+        'view': view,
+        'count': len(links),
+        'has_more': next_cursor is not None,
+        'next_cursor': next_cursor,
+        'sort': sort,
+        'order': order,
+    }
+
+    return links, next_cursor, meta
+
+
+# ─── Stats ────────────────────────────────────────────────────────────
 
 def get_stats(user_id: str) -> Dict[str, Any]:
-    """Get enhanced dashboard stats"""
-    engine = DashboardEngine(user_id)
-    base_stats = engine.get_enhanced_stats()
+    """
+    Dashboard statistics — single efficient query for counts.
+    """
+    now = datetime.utcnow()
+    week_ago = now - timedelta(days=7)
+    not_archived = Link.archived_at.is_(None)
+
+    try:
+        row = db.session.query(
+            func.count(Link.id).label('total'),
+            func.sum(_when(and_(not_archived, Link.is_active == True))).label('active'),    # noqa: E712
+            func.sum(_when(and_(Link.starred == True, not_archived))).label('starred'),      # noqa: E712
+            func.sum(_when(and_(Link.pinned == True, not_archived))).label('pinned'),        # noqa: E712
+            func.sum(_when(Link.archived_at.isnot(None))).label('archived'),
+            func.sum(_when(and_(Link.folder_id.is_(None), not_archived))).label('unassigned'),
+            func.sum(_when(Link.created_at >= week_ago)).label('this_week'),
+            func.coalesce(
+                func.sum(
+                    db.case(
+                        (Link.link_type == 'shortened', Link.click_count),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label('total_clicks'),
+        ).filter(
+            Link.user_id == user_id,
+            Link.soft_deleted == False,  # noqa: E712
+        ).one()
+
+        counts = {
+            'all': _int(row.active) + _int(row.archived),  # non-deleted total
+            'starred': _int(row.starred),
+            'pinned': _int(row.pinned),
+            'archive': _int(row.archived),
+            'unassigned': _int(row.unassigned),
+        }
+
+        stats = {
+            'overview': {
+                'total_links': _int(row.total),
+                'active_links': _int(row.active),
+                'total_clicks': _int(row.total_clicks),
+                'this_week': _int(row.this_week),
+            },
+            'counts': counts,
+        }
+
+    except Exception as e:
+        logger.error(f"Stats query failed, falling back: {e}", exc_info=True)
+        stats = _fallback_stats(user_id, week_ago)
+
+    # Folder stats (optional dependency)
+    try:
+        from app.folders.service import get_folder_with_counts
+        stats['folders'] = get_folder_with_counts(user_id)
+    except (ImportError, Exception):
+        stats['folders'] = _simple_folder_stats(user_id)
+
+    # Tag stats (optional dependency)
+    try:
+        from app.tags.service import get_tags_with_counts
+        stats['tags'] = get_tags_with_counts(user_id)
+    except (ImportError, Exception):
+        stats['tags'] = _simple_tag_stats(user_id)
+
+    return stats
+
+
+# ─── Query Helpers ────────────────────────────────────────────────────
+
+def _when(condition):
+    """CASE WHEN condition THEN 1 ELSE 0 — for conditional counting."""
+    return db.case((condition, 1), else_=0)
+
+
+def _int(val) -> int:
+    """Safely convert a possibly-None aggregate to int."""
+    return int(val) if val else 0
+
+
+def _apply_view(query, view: str):
+    """Apply view-specific WHERE clauses."""
+    if view == 'all':
+        return query.filter(Link.archived_at.is_(None))
+    elif view == 'recent':
+        cutoff = datetime.utcnow() - timedelta(days=7)
+        return query.filter(Link.archived_at.is_(None), Link.created_at >= cutoff)
+    elif view == 'starred':
+        return query.filter(Link.starred == True, Link.archived_at.is_(None))  # noqa: E712
+    elif view == 'pinned':
+        return query.filter(Link.pinned == True, Link.archived_at.is_(None))   # noqa: E712
+    elif view == 'archive':
+        return query.filter(Link.archived_at.isnot(None))
+    elif view == 'expired':
+        return query.filter(
+            Link.link_type == 'shortened',
+            Link.expires_at.isnot(None),
+            Link.expires_at <= datetime.utcnow(),
+        )
+    return query.filter(Link.archived_at.is_(None))
+
+
+def _apply_filters(query, filters: Dict[str, Any]):
+    """Apply additional filter criteria."""
+
+    # Folder
+    if filters.get('folder_id'):
+        query = query.filter(Link.folder_id == filters['folder_id'])
+    elif filters.get('unassigned_only'):
+        query = query.filter(Link.folder_id.is_(None))
+
+    # System folder scope
+    if filters.get('system_folder') == 'my_files':
+        try:
+            from app.folders.system import get_my_files_scope_query
+            query = get_my_files_scope_query(filters.get('_user_id'))
+        except (ImportError, Exception):
+            pass  # Use existing query as-is
+
+    # Status
+    if filters.get('starred_only'):
+        query = query.filter(Link.starred == True)   # noqa: E712
+    if filters.get('pinned_only'):
+        query = query.filter(Link.pinned == True)    # noqa: E712
+
+    # Link type
+    if filters.get('link_type'):
+        query = query.filter(Link.link_type == filters['link_type'])
+
+    # Tags (links with ANY of the specified tags)
+    if filters.get('tag_ids'):
+        tag_subq = (
+            db.session.query(LinkTag.link_id)
+            .filter(LinkTag.tag_id.in_(filters['tag_ids']))
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(Link.id.in_(db.session.query(tag_subq)))
+
+    return query
+
+
+def _apply_search(query, search: str):
+    """Full-text search across title, URL, notes, and slug."""
+    term = f'%{search.strip()}%'
+    return query.filter(
+        or_(
+            Link.title.ilike(term),
+            Link.original_url.ilike(term),
+            Link.notes.ilike(term),
+            Link.slug.ilike(term),
+        )
+    )
+
+
+def _apply_sort(query, sort: str, order: str, view: str):
+    """Apply sorting with pinned-first for default views."""
+    col = SORT_COLUMNS.get(sort, Link.created_at)
+    direction = asc(col) if order == 'asc' else desc(col)
+
+    # In default views, pinned items float to the top
+    if view in ('all', 'recent') and sort == 'created_at' and order == 'desc':
+        return query.order_by(
+            desc(Link.pinned),
+            desc(Link.starred),
+            direction,
+        )
+
+    return query.order_by(direction)
+
+
+def _paginate(query, cursor: Optional[str], limit: int):
+    """
+    Offset-based pagination encoded in an opaque cursor.
     
-    # Add folder and tag stats
-    from app.folders.service import get_folder_with_counts
-    from app.tags.service import get_tags_with_counts
-    
-    base_stats['folders'] = get_folder_with_counts(user_id)
-    base_stats['tags'] = get_tags_with_counts(user_id)
-    
-    return base_stats
+    Cursor = string representation of offset.
+    Works with any sort order.
+    """
+    offset = 0
+    if cursor:
+        try:
+            offset = max(0, int(cursor))
+        except (ValueError, TypeError):
+            offset = 0
+
+    items = query.offset(offset).limit(limit + 1).all()
+    has_more = len(items) > limit
+
+    if has_more:
+        items = items[:limit]
+
+    next_cursor = str(offset + limit) if has_more else None
+    return items, next_cursor
+
+
+# ─── Fallback Stats (if CASE expression fails on older SQLAlchemy) ───
+
+def _fallback_stats(user_id: str, week_ago: datetime) -> Dict[str, Any]:
+    """Simple multi-query fallback for stats."""
+    base = Link.query.filter(Link.user_id == user_id, Link.soft_deleted == False)  # noqa: E712
+    na = Link.archived_at.is_(None)
+
+    return {
+        'overview': {
+            'total_links': base.count(),
+            'active_links': base.filter(na, Link.is_active == True).count(),   # noqa: E712
+            'total_clicks': _int(
+                db.session.query(func.sum(Link.click_count))
+                .filter(Link.user_id == user_id, Link.soft_deleted == False, Link.link_type == 'shortened')
+                .scalar()
+            ),
+            'this_week': base.filter(Link.created_at >= week_ago).count(),
+        },
+        'counts': {
+            'all': base.filter(na).count(),
+            'starred': base.filter(Link.starred == True, na).count(),        # noqa: E712
+            'pinned': base.filter(Link.pinned == True, na).count(),          # noqa: E712
+            'archive': base.filter(Link.archived_at.isnot(None)).count(),
+            'unassigned': base.filter(Link.folder_id.is_(None), na).count(),
+        },
+    }
+
+
+def _simple_folder_stats(user_id: str) -> List[Dict[str, Any]]:
+    """Basic folder list with link counts (no external dependency)."""
+    try:
+        folders = Folder.query.filter(
+            Folder.user_id == user_id,
+            Folder.soft_deleted == False,  # noqa: E712
+        ).order_by(Folder.position, Folder.name).all()
+
+        result = []
+        for f in folders:
+            count = Link.query.filter(
+                Link.user_id == user_id,
+                Link.folder_id == f.id,
+                Link.soft_deleted == False,  # noqa: E712
+                Link.archived_at.is_(None),
+            ).count()
+            result.append({
+                'id': f.id,
+                'name': f.name,
+                'color': f.color,
+                'icon': getattr(f, 'icon', None),
+                'link_count': count,
+            })
+        return result
+    except Exception as e:
+        logger.debug(f"Folder stats fallback failed: {e}")
+        return []
+
+
+def _simple_tag_stats(user_id: str) -> List[Dict[str, Any]]:
+    """Basic tag list with usage counts (no external dependency)."""
+    try:
+        tags = Tag.query.filter(Tag.user_id == user_id).order_by(Tag.name).all()
+
+        result = []
+        for t in tags:
+            count = LinkTag.query.filter(LinkTag.tag_id == t.id, LinkTag.user_id == user_id).count()
+            result.append({
+                'id': t.id,
+                'name': t.name,
+                'color': t.color,
+                'link_count': count,
+            })
+        return result
+    except Exception as e:
+        logger.debug(f"Tag stats fallback failed: {e}")
+        return []

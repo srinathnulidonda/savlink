@@ -1,52 +1,20 @@
 {
-    "buildCommand": "npm run build",
-    "outputDirectory": "dist",
-    "framework": "vite",
-    "rewrites": [
+  "rewrites": [
+    { "source": "/((?!assets|icons|favicon).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
         {
-            "source": "/api/(.*)",
-            "destination": "https://savlinks-test-g445.onrender.com/api/$1"
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
         },
         {
-            "source": "/auth/(.*)",
-            "destination": "https://savlinks-test-g445.onrender.com/auth/$1"
-        },
-        {
-            "source": "/r/(.*)",
-            "destination": "https://savlinks-test-g445.onrender.com/r/$1"
-        },
-        {
-            "source": "/((?!.*\\.).)*",
-            "destination": "/index.html"
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "unsafe-none"
         }
-    ],
-    "headers": [
-        {
-            "source": "/(.*)",
-            "headers": [
-                {
-                    "key": "X-Frame-Options",
-                    "value": "SAMEORIGIN"
-                },
-                {
-                    "key": "X-Content-Type-Options",
-                    "value": "nosniff"
-                },
-                {
-                    "key": "Referrer-Policy",
-                    "value": "strict-origin-when-cross-origin"
-                }
-            ]
-        },
-        {
-            "source": "/static/(.*)",
-            "headers": [
-                {
-                    "key": "Cache-Control",
-                    "value": "public, max-age=31536000, immutable"
-                }
-            ]
-        }
-    ],
-    "trailingSlash": false
+      ]
+    }
+  ]
 }

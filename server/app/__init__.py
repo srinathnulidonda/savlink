@@ -117,120 +117,57 @@ def is_oauth_related_origin(origin):
     return any(domain in origin_lower for domain in oauth_domains)
 
 def configure_request_handling(app):
-    """Configure request timeout and performance monitoring - OAUTH OPTIMIZED"""
-    
+    """Configure request timeout, performance monitoring, and CORS — SIMPLIFIED"""
+
     @app.before_request
     def before_request():
-        """Track request start time and handle CORS preflight"""
+        """Track request timing. CORS preflight is handled by Flask-CORS."""
         g.request_start_time = time.time()
-        
+
         if app.config.get('DEBUG'):
-            logger.debug(f"Request: {request.method} {request.path} from {request.headers.get('Origin', 'unknown')}")
-        
-        # Enhanced OPTIONS handling for OAuth flows
-        if request.method == "OPTIONS":
-            response = make_response()
-            
-            origin = request.headers.get('Origin', '')
-            allowed_origins = app.config.get('CORS_ORIGINS', [])
-            
-            # Check if origin is allowed
-            origin_allowed = False
-            
-            # Direct match
-            if origin in allowed_origins:
-                origin_allowed = True
-            # OAuth-related origins
-            elif is_oauth_related_origin(origin):
-                origin_allowed = True
-            # Wildcard patterns for Vercel deployments
-            elif origin and any(
-                re.match(pattern.replace('*', '.*'), origin) 
-                for pattern in allowed_origins 
-                if '*' in pattern
-            ):
-                origin_allowed = True
-            
-            if origin_allowed:
-                response.headers['Access-Control-Allow-Origin'] = origin
-            elif allowed_origins:
-                response.headers['Access-Control-Allow-Origin'] = allowed_origins[0]
-            else:
-                response.headers['Access-Control-Allow-Origin'] = '*'
-            
-            # Enhanced headers for OAuth compatibility
-            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
-            response.headers['Access-Control-Allow-Headers'] = (
-                'Content-Type, Authorization, X-Requested-With, Accept, Origin, '
-                'Access-Control-Request-Method, Access-Control-Request-Headers'
-            )
-            response.headers['Access-Control-Allow-Credentials'] = 'true'
-            response.headers['Access-Control-Max-Age'] = '86400'
-            
-            # CRITICAL: OAuth-friendly COOP headers
-            response.headers['Cross-Origin-Opener-Policy'] = 'unsafe-none'
-            response.headers['Cross-Origin-Embedder-Policy'] = 'unsafe-none'
-            
-            # Additional headers for OAuth flows
-            response.headers['Vary'] = 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers'
-            
-            return response, 200
-    
+            logger.debug(f"Request: {request.method} {request.path} "
+                         f"from {request.headers.get('Origin', 'unknown')}")
+
     @app.after_request
     def after_request(response):
-        """Add security headers and monitor performance - OAUTH OPTIMIZED"""
+        """Add security + COOP headers to every response."""
+
+        # ── Performance monitoring ──
         if hasattr(g, 'request_start_time'):
             duration = time.time() - g.request_start_time
-            
             threshold = app.config.get('SLOW_REQUEST_THRESHOLD', 15)
             if duration > threshold:
                 logger.warning(f"🐌 Slow request: {request.method} {request.path} took {duration:.2f}s")
-            
             if app.config.get('DEBUG'):
                 response.headers['X-Response-Time'] = f"{duration:.3f}s"
-        
-        origin = request.headers.get('Origin', '')
-        
-        # ENHANCED: OAuth-friendly COOP headers based on origin
-        if is_oauth_related_origin(origin):
-            # Most permissive for OAuth flows
-            response.headers['Cross-Origin-Opener-Policy'] = 'unsafe-none'
-        elif origin and any(domain in origin for domain in ['vercel.app', 'localhost', '127.0.0.1']):
-            # Permissive for our own domains
-            response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
-        else:
-            # Default for other origins
-            response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
-        
-        # Always use unsafe-none for COEP to avoid blocking OAuth
+
+        # ── COOP / COEP — must be unsafe-none for OAuth popup compatibility ──
+        response.headers['Cross-Origin-Opener-Policy'] = 'unsafe-none'
         response.headers['Cross-Origin-Embedder-Policy'] = 'unsafe-none'
-        
-        # Security headers - OAuth optimized
+
+        # ── Standard security headers ──
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'SAMEORIGIN'  # Less restrictive for OAuth
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['X-XSS-Protection'] = '1; mode=block'
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        
-        # Vary header for proper caching with CORS
+
+        # ── Vary header for correct CORS caching ──
         existing_vary = response.headers.get('Vary', '')
-        vary_values = ['Origin']
-        if existing_vary:
-            vary_values = list(set(existing_vary.split(', ') + vary_values))
+        vary_values = set(filter(None, existing_vary.split(', '))) | {'Origin'}
         response.headers['Vary'] = ', '.join(vary_values)
-        
-        # Cache control for API responses
+
+        # ── Cache control ──
         if request.path.startswith('/api/') or request.path.startswith('/auth/'):
             response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
-        elif request.path.startswith('/r/'):  # Short links should be cacheable
-            response.headers['Cache-Control'] = 'public, max-age=300'  # 5 minutes
-        
+        elif request.path.startswith('/r/'):
+            response.headers['Cache-Control'] = 'public, max-age=300'
+
         return response
-    
+
     @app.teardown_request
     def teardown_request(exception):
-        """Log any request exceptions"""
         if exception:
             logger.error(f"❌ Request exception: {exception}", exc_info=True)
 
