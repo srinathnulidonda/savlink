@@ -1,4 +1,5 @@
 # server/app/dashboard/views.py
+
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
@@ -7,13 +8,19 @@ from sqlalchemy.orm import joinedload
 from app.models import Link, Folder, LinkTag, Tag
 from app.extensions import db
 from app.dashboard.serializers import serialize_link
+from app.cache.redis_layer import cache
+from app.cache import keys as K
 
 logger = logging.getLogger(__name__)
 
-VALID_VIEWS = {'all', 'recent', 'starred', 'pinned', 'archive', 'expired', 'short'}
-SORT_MAP = {'created_at': Link.created_at, 'updated_at': Link.updated_at,
-            'title': Link.title, 'click_count': Link.click_count}
+VALID_VIEWS = {'all', 'recent', 'starred', 'pinned', 'archive', 'expired', 'short', 'frequently_used'}
+SORT_MAP = {
+    'created_at': Link.created_at, 'updated_at': Link.updated_at,
+    'title': Link.title, 'click_count': Link.click_count,
+}
 
+
+# ── Resolve View (paginated link list) ───────────────────────────────
 
 def resolve_view(user_id, view='all', search=None, cursor=None, limit=20,
                  sort='created_at', order='desc', **filters):
@@ -38,10 +45,142 @@ def resolve_view(user_id, view='all', search=None, cursor=None, limit=20,
         query = query.order_by(direction)
 
     links, next_cursor = paginate(query, cursor, limit)
-    meta = {'view': view, 'count': len(links), 'has_more': next_cursor is not None,
-            'next_cursor': next_cursor, 'sort': sort, 'order': order}
+    meta = {
+        'view': view, 'count': len(links), 'has_more': next_cursor is not None,
+        'next_cursor': next_cursor, 'sort': sort, 'order': order,
+    }
     return links, next_cursor, meta
 
+
+# ── Dedicated View Endpoints ─────────────────────────────────────────
+
+def get_recent_items(user_id: str, limit: int = 20) -> Dict[str, Any]:
+    key = K.DASH_RECENT.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    links = (
+        Link.query.options(joinedload(Link.folder))
+        .filter(
+            Link.user_id == user_id, Link.soft_deleted == False,
+            Link.archived_at.is_(None),
+            or_(Link.created_at >= week_ago, Link.updated_at >= week_ago),
+        )
+        .order_by(desc(Link.updated_at))
+        .limit(limit)
+        .all()
+    )
+    folders = (
+        Folder.query.filter(
+            Folder.user_id == user_id, Folder.soft_deleted == False,
+            Folder.updated_at >= week_ago,
+        )
+        .order_by(desc(Folder.updated_at))
+        .limit(5)
+        .all()
+    )
+    from app.folders.service import serialize_folder
+
+    data = {
+        'recent_links': [serialize_link(l) for l in links],
+        'recent_folders': [serialize_folder(f, counts=True) for f in folders],
+        'period': '7d',
+    }
+    cache.put(key, data, K.TTL_DASHBOARD)
+    return data
+
+
+def get_pinned_items(user_id: str) -> Dict[str, Any]:
+    key = K.DASH_PINNED.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    links = (
+        Link.query.options(joinedload(Link.folder))
+        .filter(
+            Link.user_id == user_id, Link.soft_deleted == False,
+            Link.archived_at.is_(None), Link.pinned == True,
+        )
+        .order_by(desc(Link.pinned_at), desc(Link.created_at))
+        .limit(50)
+        .all()
+    )
+    folders = (
+        Folder.query.filter(
+            Folder.user_id == user_id, Folder.soft_deleted == False,
+            Folder.pinned == True,
+        )
+        .order_by(desc(Folder.updated_at))
+        .all()
+    )
+    from app.folders.service import serialize_folder
+
+    data = {
+        'pinned_links': [serialize_link(l) for l in links],
+        'pinned_folders': [serialize_folder(f, counts=True) for f in folders],
+        'total_pinned': len(links) + len(folders),
+    }
+    cache.put(key, data, K.TTL_DASHBOARD)
+    return data
+
+
+def get_starred_items(user_id: str, limit: int = 30) -> Dict[str, Any]:
+    key = K.DASH_STARRED.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    links = (
+        Link.query.options(joinedload(Link.folder))
+        .filter(
+            Link.user_id == user_id, Link.soft_deleted == False,
+            Link.archived_at.is_(None), Link.starred == True,
+        )
+        .order_by(desc(Link.updated_at))
+        .limit(limit)
+        .all()
+    )
+    data = {
+        'starred_links': [serialize_link(l) for l in links],
+        'total_starred': len(links),
+    }
+    cache.put(key, data, K.TTL_DASHBOARD)
+    return data
+
+
+# ── Overview (single call for full dashboard load) ───────────────────
+
+def get_overview(user_id: str) -> Dict[str, Any]:
+    key = K.DASH_OVERVIEW.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    data = {
+        'home': get_home_data(user_id),
+        'stats': get_stats(user_id),
+        'pinned': get_pinned_items(user_id),
+        'starred': get_starred_items(user_id),
+    }
+    try:
+        from app.folders.service import get_folder_tree
+        data['folder_tree'] = get_folder_tree(user_id)
+    except Exception:
+        data['folder_tree'] = []
+    try:
+        from app.tags.service import get_tags_with_counts
+        data['tags'] = get_tags_with_counts(user_id)
+    except Exception:
+        data['tags'] = []
+
+    cache.put(key, data, K.TTL_DASHBOARD)
+    return data
+
+
+# ── Stats ────────────────────────────────────────────────────────────
 
 def _when(cond):
     return db.case((cond, 1), else_=0)
@@ -52,6 +191,11 @@ def _safe_int(v):
 
 
 def get_stats(user_id: str) -> Dict[str, Any]:
+    key = K.DASH_STATS.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
+
     na = Link.archived_at.is_(None)
     week_ago = datetime.utcnow() - timedelta(days=7)
     try:
@@ -64,15 +208,28 @@ def get_stats(user_id: str) -> Dict[str, Any]:
             func.sum(_when(db.and_(Link.folder_id.is_(None), na))).label('unassigned'),
             func.sum(_when(Link.created_at >= week_ago)).label('this_week'),
             func.sum(_when(db.and_(Link.link_type == 'shortened', na))).label('short'),
-            db.func.coalesce(func.sum(db.case((Link.link_type == 'shortened', Link.click_count), else_=0)), 0).label('clicks'),
+            func.sum(_when(db.and_(Link.frequently_used == True, na))).label('frequently_used'),
+            db.func.coalesce(
+                func.sum(db.case((Link.link_type == 'shortened', Link.click_count), else_=0)), 0
+            ).label('clicks'),
         ).filter(Link.user_id == user_id, Link.soft_deleted == False).one()
 
         stats = {
-            'overview': {'total_links': _safe_int(r.total), 'active_links': _safe_int(r.active),
-                         'total_clicks': _safe_int(r.clicks), 'this_week': _safe_int(r.this_week)},
-            'counts': {'all': _safe_int(r.active), 'starred': _safe_int(r.starred),
-                       'pinned': _safe_int(r.pinned), 'archive': _safe_int(r.archived),
-                       'unassigned': _safe_int(r.unassigned), 'short': _safe_int(r.short)},
+            'overview': {
+                'total_links': _safe_int(r.total),
+                'active_links': _safe_int(r.active),
+                'total_clicks': _safe_int(r.clicks),
+                'this_week': _safe_int(r.this_week),
+            },
+            'counts': {
+                'all': _safe_int(r.active),
+                'starred': _safe_int(r.starred),
+                'pinned': _safe_int(r.pinned),
+                'archive': _safe_int(r.archived),
+                'unassigned': _safe_int(r.unassigned),
+                'short': _safe_int(r.short),
+                'frequently_used': _safe_int(r.frequently_used),
+            },
         }
     except Exception as e:
         logger.error("Stats query failed: %s", e)
@@ -83,56 +240,99 @@ def get_stats(user_id: str) -> Dict[str, Any]:
         stats['tags'] = get_tags_with_counts(user_id)
     except Exception:
         stats['tags'] = []
-
     try:
         from app.folders.service import get_user_folders, serialize_folder
         stats['folders'] = [serialize_folder(f, counts=True) for f in get_user_folders(user_id)]
     except Exception:
         stats['folders'] = []
 
+    cache.put(key, stats, K.TTL_STATS)
     return stats
 
 
-def get_home_data(user_id: str) -> Dict[str, Any]:
-    recent = Link.query.options(joinedload(Link.folder)).filter(
-        Link.user_id == user_id, Link.soft_deleted == False, Link.archived_at.is_(None)
-    ).order_by(desc(Link.created_at)).limit(10).all()
+# ── Home / Quick Access ──────────────────────────────────────────────
 
+def get_home_data(user_id: str) -> Dict[str, Any]:
+    key = K.DASH_HOME.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
+
+    recent = (
+        Link.query.options(joinedload(Link.folder))
+        .filter(Link.user_id == user_id, Link.soft_deleted == False, Link.archived_at.is_(None))
+        .order_by(desc(Link.created_at))
+        .limit(10)
+        .all()
+    )
     week_ago = datetime.utcnow() - timedelta(days=7)
     na = Link.archived_at.is_(None)
     total = Link.query.filter(Link.user_id == user_id, Link.soft_deleted == False, na).count()
     folders = Folder.query.filter(Folder.user_id == user_id, Folder.soft_deleted == False).count()
-    this_week = Link.query.filter(Link.user_id == user_id, Link.soft_deleted == False, Link.created_at >= week_ago).count()
-    clicks = db.session.query(func.coalesce(func.sum(Link.click_count), 0)).filter(
-        Link.user_id == user_id, Link.soft_deleted == False, Link.link_type == 'shortened').scalar()
+    this_week = Link.query.filter(
+        Link.user_id == user_id, Link.soft_deleted == False, Link.created_at >= week_ago
+    ).count()
+    clicks = (
+        db.session.query(func.coalesce(func.sum(Link.click_count), 0))
+        .filter(Link.user_id == user_id, Link.soft_deleted == False, Link.link_type == 'shortened')
+        .scalar()
+    )
 
-    return {
+    data = {
         'recent_links': [serialize_link(l) for l in recent],
         'quick_access': get_quick_access(user_id),
-        'stats': {'total_links': total, 'total_folders': folders,
-                  'this_week': this_week, 'total_clicks': int(clicks or 0)},
+        'stats': {
+            'total_links': total,
+            'total_folders': folders,
+            'this_week': this_week,
+            'total_clicks': int(clicks or 0),
+        },
     }
+    cache.put(key, data, K.TTL_DASHBOARD)
+    return data
 
 
 def get_quick_access(user_id: str, limit: int = 8) -> List[Dict[str, Any]]:
-    items = []
-    links = Link.query.options(joinedload(Link.folder)).filter(
-        Link.user_id == user_id, Link.soft_deleted == False, Link.archived_at.is_(None),
-        or_(Link.pinned == True, Link.starred == True)
-    ).order_by(desc(Link.pinned), desc(Link.starred), desc(Link.updated_at)).limit(limit).all()
+    key = K.DASH_QUICK.format(user_id)
+    cached = cache.get(key)
+    if cached:
+        return cached
 
+    items = []
+    links = (
+        Link.query.options(joinedload(Link.folder))
+        .filter(
+            Link.user_id == user_id, Link.soft_deleted == False, Link.archived_at.is_(None),
+            or_(Link.pinned == True, Link.starred == True, Link.frequently_used == True),
+        )
+        .order_by(desc(Link.pinned), desc(Link.frequently_used), desc(Link.starred), desc(Link.updated_at))
+        .limit(limit)
+        .all()
+    )
     for link in links:
         items.append({'type': 'link', 'item': serialize_link(link)})
 
-    folders = Folder.query.filter(
-        Folder.user_id == user_id, Folder.soft_deleted == False, Folder.pinned == True
-    ).order_by(desc(Folder.updated_at)).limit(3).all()
-
+    folders = (
+        Folder.query.filter(
+            Folder.user_id == user_id, Folder.soft_deleted == False, Folder.pinned == True,
+        )
+        .order_by(desc(Folder.updated_at))
+        .limit(3)
+        .all()
+    )
     for f in folders:
-        cnt = Link.query.filter(Link.user_id == user_id, Link.folder_id == f.id,
-                                Link.soft_deleted == False, Link.archived_at.is_(None)).count()
-        items.append({'type': 'folder', 'item': {
-            'id': f.id, 'name': f.name, 'color': f.color, 'icon': f.icon,
-            'link_count': cnt, 'pinned': True}})
+        cnt = Link.query.filter(
+            Link.user_id == user_id, Link.folder_id == f.id,
+            Link.soft_deleted == False, Link.archived_at.is_(None),
+        ).count()
+        items.append({
+            'type': 'folder',
+            'item': {
+                'id': f.id, 'name': f.name, 'color': f.color,
+                'icon': f.icon, 'link_count': cnt, 'pinned': True,
+            },
+        })
 
-    return items[:limit]
+    result = items[:limit]
+    cache.put(key, result, K.TTL_DASHBOARD)
+    return result

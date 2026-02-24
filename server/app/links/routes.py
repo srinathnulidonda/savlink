@@ -1,4 +1,5 @@
 # server/app/links/routes.py
+
 from flask import request, g
 from app.links import links_bp
 from app.auth.middleware import require_auth
@@ -7,21 +8,30 @@ from app.links import service
 from app.dashboard.serializers import serialize_link
 
 
+# ── CRUD ─────────────────────────────────────────────────────────────
+
 @links_bp.route('', methods=['POST'])
 @require_auth
 def create():
     data = request.get_json()
     if not data:
         return error_response('Invalid request body', 400)
-
     link, extra = service.create_link(g.current_user.id, data)
     if link is None:
         return error_response(extra.get('error', 'Creation failed'), 400)
-
     resp = {'link': serialize_link(link)}
     if extra and extra.get('duplicate_warning'):
         resp['duplicate_warning'] = extra['duplicate_warning']
     return success_response(resp, status=201)
+
+
+@links_bp.route('/<int:link_id>', methods=['GET'])
+@require_auth
+def get_one(link_id):
+    link = service.get_link_detail(g.current_user.id, link_id)
+    if not link:
+        return error_response('Link not found', 404)
+    return success_response({'link': serialize_link(link)})
 
 
 @links_bp.route('/<int:link_id>', methods=['PUT', 'PATCH'])
@@ -35,6 +45,15 @@ def update(link_id):
         return error_response(err, 404 if 'not found' in err.lower() else 400)
     return success_response({'link': serialize_link(link)})
 
+
+@links_bp.route('/<int:link_id>', methods=['DELETE'])
+@require_auth
+def delete(link_id):
+    ok, err = service.soft_delete_link(g.current_user.id, link_id)
+    return success_response(message='Deleted') if ok else error_response(err, 404)
+
+
+# ── Pin / Star / Frequently Used ─────────────────────────────────────
 
 @links_bp.route('/<int:link_id>/pin', methods=['POST'])
 @require_auth
@@ -64,6 +83,17 @@ def unstar(link_id):
     return success_response(message='Unstarred') if ok else error_response(err, 404)
 
 
+@links_bp.route('/<int:link_id>/toggle-frequent', methods=['POST'])
+@require_auth
+def toggle_frequent(link_id):
+    state, err = service.toggle_frequently_used(g.current_user.id, link_id)
+    if err:
+        return error_response(err, 404)
+    return success_response({'frequently_used': state})
+
+
+# ── Archive / Restore ────────────────────────────────────────────────
+
 @links_bp.route('/<int:link_id>/archive', methods=['POST'])
 @require_auth
 def archive(link_id):
@@ -87,21 +117,7 @@ def toggle_active(link_id):
     return success_response({'is_active': state})
 
 
-@links_bp.route('/<int:link_id>', methods=['DELETE'])
-@require_auth
-def delete(link_id):
-    ok, err = service.soft_delete_link(g.current_user.id, link_id)
-    return success_response(message='Deleted') if ok else error_response(err, 404)
-
-
-@links_bp.route('/check-duplicate', methods=['POST'])
-@require_auth
-def check_duplicate():
-    data = request.get_json()
-    if not data or not data.get('original_url'):
-        return error_response('original_url is required', 400)
-    return success_response({'duplicate': service.check_duplicate(g.current_user.id, data['original_url'])})
-
+# ── Move / Tags / Duplicate ─────────────────────────────────────────
 
 @links_bp.route('/<int:link_id>/move-folder', methods=['POST'])
 @require_auth
@@ -117,7 +133,45 @@ def update_tags(link_id):
     data = request.get_json()
     if not data:
         return error_response('Invalid body', 400)
-    add_ids = data.get('add', [])
-    remove_ids = data.get('remove', [])
-    ok = service.update_link_tags(g.current_user.id, link_id, add_ids, remove_ids)
+    ok = service.update_link_tags(g.current_user.id, link_id, data.get('add', []), data.get('remove', []))
     return success_response(message='Tags updated') if ok else error_response('Not found', 404)
+
+
+@links_bp.route('/<int:link_id>/duplicate', methods=['POST'])
+@require_auth
+def duplicate(link_id):
+    link, err = service.duplicate_link(g.current_user.id, link_id)
+    if err:
+        return error_response(err, 404 if 'not found' in err.lower() else 400)
+    return success_response({'link': serialize_link(link)}, status=201)
+
+
+@links_bp.route('/check-duplicate', methods=['POST'])
+@require_auth
+def check_duplicate():
+    data = request.get_json()
+    if not data or not data.get('original_url'):
+        return error_response('original_url is required', 400)
+    return success_response({'duplicate': service.check_duplicate(g.current_user.id, data['original_url'])})
+
+
+# ── Bulk ─────────────────────────────────────────────────────────────
+
+@links_bp.route('/bulk', methods=['POST'])
+@require_auth
+def bulk_action():
+    data = request.get_json()
+    if not data:
+        return error_response('Invalid body', 400)
+    action = data.get('action')
+    link_ids = data.get('link_ids', [])
+    if not action or not link_ids or not isinstance(link_ids, list):
+        return error_response('action and link_ids[] required', 400)
+    if len(link_ids) > 200:
+        return error_response('Max 200 links per batch', 400)
+
+    from app.links.bulk import execute_bulk
+    result = execute_bulk(g.current_user.id, action, link_ids, data)
+    if result.get('error'):
+        return error_response(result['error'], 400)
+    return success_response(result)

@@ -26,6 +26,7 @@ class Link(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     soft_deleted = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
     click_count = db.Column(db.Integer, default=0, nullable=False)
     metadata_ = db.Column('metadata', JSONB, default=dict)
     password_hash = db.Column(db.String(255), nullable=True)

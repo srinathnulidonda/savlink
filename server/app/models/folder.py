@@ -17,7 +17,7 @@ class Folder(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     soft_deleted = db.Column(db.Boolean, default=False, nullable=False, index=True)
-
+    deleted_at = db.Column(db.DateTime, nullable=True)
     user = db.relationship('User', backref=db.backref('folders', lazy='dynamic'))
     parent = db.relationship('Folder', remote_side=[id], backref='children')
 

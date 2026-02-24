@@ -1,5 +1,6 @@
 # server/app/redirect/routes.py
 import logging
+from datetime import datetime
 from flask import redirect as flask_redirect, abort, request, jsonify
 from app.redirect import redirect_bp
 from app.shortlinks.service import ShortLinkManager
@@ -54,10 +55,11 @@ def preview(slug):
     if not link:
         abort(404)
     return jsonify({
-        'slug': slug, 'destination': link.original_url,
+        'slug': slug,
+        'destination': link.original_url,
         'domain': extract_domain(link.original_url),
         'favicon': build_favicon_url(link.original_url),
         'click_count': link.click_count,
         'is_active': link.is_active,
-        'is_expired': bool(link.expires_at and __import__('datetime').datetime.utcnow() > link.expires_at),
+        'is_expired': bool(link.expires_at and datetime.utcnow() > link.expires_at),
     })

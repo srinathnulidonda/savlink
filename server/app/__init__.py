@@ -134,17 +134,23 @@ def _register_blueprints(app):
     from .redirect import redirect_bp
     from .metadata.routes import metadata_bp
     from .export import export_bp
+    from .activity import activity_bp
+    from .trash import trash_bp
+    from .users import users_bp
 
-    app.register_blueprint(auth_bp, url_prefix='/auth')
-    app.register_blueprint(links_bp, url_prefix='/api/links')
-    app.register_blueprint(folders_bp, url_prefix='/api/folders')
-    app.register_blueprint(tags_bp, url_prefix='/api/tags')
-    app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
-    app.register_blueprint(search_bp, url_prefix='/api/search')
+    app.register_blueprint(auth_bp,       url_prefix='/auth')
+    app.register_blueprint(links_bp,      url_prefix='/api/links')
+    app.register_blueprint(folders_bp,    url_prefix='/api/folders')
+    app.register_blueprint(tags_bp,       url_prefix='/api/tags')
+    app.register_blueprint(dashboard_bp,  url_prefix='/api/dashboard')
+    app.register_blueprint(search_bp,     url_prefix='/api/search')
     app.register_blueprint(shortlinks_bp, url_prefix='/api/shortlinks')
-    app.register_blueprint(redirect_bp, url_prefix='/r')
-    app.register_blueprint(metadata_bp, url_prefix='/api/metadata')
-    app.register_blueprint(export_bp, url_prefix='/api/export')
+    app.register_blueprint(redirect_bp,   url_prefix='/r')
+    app.register_blueprint(metadata_bp,   url_prefix='/api/metadata')
+    app.register_blueprint(export_bp,     url_prefix='/api/export')
+    app.register_blueprint(activity_bp,   url_prefix='/api/activity')
+    app.register_blueprint(trash_bp,      url_prefix='/api/trash')
+    app.register_blueprint(users_bp,      url_prefix='/api/user')
 
 
 def _register_errors(app):

@@ -1,6 +1,7 @@
 # server/app/auth/provisioning.py
 import time
 import logging
+import threading
 from datetime import datetime
 from typing import Optional, Dict, Any
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 LOGIN_UPDATE_INTERVAL = 300
 _last_login_updates: Dict[str, float] = {}
+_login_lock = threading.Lock()
 
 
 def provision_user_cached(user_info: Dict[str, Any]) -> Optional[User]:
@@ -49,11 +51,15 @@ def _provision_or_update(uid: str, email: str, info: Dict[str, Any]) -> User:
             if not conflict or conflict.id == uid:
                 user.email = email
                 changed = True
+
         now = time.time()
-        if now - _last_login_updates.get(uid, 0) > LOGIN_UPDATE_INTERVAL:
-            user.last_login_at = datetime.utcnow()
-            _last_login_updates[uid] = now
-            changed = True
+        with _login_lock:
+            last = _last_login_updates.get(uid, 0)
+            if now - last > LOGIN_UPDATE_INTERVAL:
+                user.last_login_at = datetime.utcnow()
+                _last_login_updates[uid] = now
+                changed = True
+
         if changed:
             db.session.commit()
             invalidate_user_cache(uid)
@@ -70,7 +76,8 @@ def _provision_or_update(uid: str, email: str, info: Dict[str, Any]) -> User:
             existing.avatar_url = info['picture']
         try:
             db.session.commit()
-            _last_login_updates[uid] = time.time()
+            with _login_lock:
+                _last_login_updates[uid] = time.time()
             invalidate_user_cache(uid)
             return existing
         except IntegrityError:
@@ -90,7 +97,8 @@ def _provision_or_update(uid: str, email: str, info: Dict[str, Any]) -> User:
     try:
         db.session.add(user)
         db.session.commit()
-        _last_login_updates[uid] = time.time()
+        with _login_lock:
+            _last_login_updates[uid] = time.time()
         logger.info("Created user: %s (%s)", uid, email)
         return user
     except IntegrityError:

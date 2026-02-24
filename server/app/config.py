@@ -23,11 +23,14 @@ def _build_cors():
                 defaults.append(f'https://{pid}.firebaseapp.com')
         except Exception:
             pass
-    return list(dict.fromkeys(defaults + extra))
+    return list(dict.fromkeys(d for d in defaults + extra if d))
 
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        SECRET_KEY = 'dev-fallback-change-in-production'
+        logger.warning("SECRET_KEY not set — using fallback (NOT safe for production)")
 
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', '').strip()
     if SQLALCHEMY_DATABASE_URI.startswith('postgres://'):
@@ -35,12 +38,11 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 2,
-        'max_overflow': 3,
+        'pool_size': 5,
+        'max_overflow': 10,
         'pool_recycle': 300,
-        'pool_pre_ping': False,
-        'pool_timeout': 60,
-        'pool_reset_on_return': None,
+        'pool_pre_ping': True,
+        'pool_timeout': 30,
         'echo': False,
         'connect_args': {
             'connect_timeout': 30,
@@ -55,7 +57,7 @@ class Config:
     API_URL = os.environ.get('API_URL', '')
     REDIS_URL = os.environ.get('REDIS_URL')
     BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
-    EMAIL_FROM_ADDRESS = os.environ.get('EMAIL_FROM_ADDRESS', 'noreply@savlink.com')
+    EMAIL_FROM_ADDRESS = os.environ.get('EMAIL_FROM_ADDRESS')
 
     FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
     DEBUG = FLASK_ENV == 'development'
@@ -69,6 +71,8 @@ class Config:
         if cls.FLASK_ENV == 'production':
             if not cls.SQLALCHEMY_DATABASE_URI:
                 raise ValueError('DATABASE_URL must be set in production')
+            if cls.SECRET_KEY == 'dev-fallback-change-in-production':
+                raise ValueError('SECRET_KEY must be set in production')
 
 
 def get_config():

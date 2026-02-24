@@ -7,7 +7,9 @@ from app.extensions import db, redis_client
 from app.models import Link
 from app.links.service import _validate_url, _parse_expiration, _append_utm
 from app.utils.slug import generate_unique_slug, is_slug_available
+from app.utils.crypto import hash_password, verify_password
 from app.utils.url import extract_domain
+from app.cache.invalidation import on_link_change
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +42,7 @@ class ShortLinkManager:
 
         pw_hash = None
         if data.get('password'):
-            import hashlib
-            pw_hash = hashlib.sha256(data['password'].encode()).hexdigest()
+            pw_hash = hash_password(data['password'])
 
         meta = {k: data.get(k) for k in ('utm_params', 'click_limit', 'created_via') if data.get(k)}
         if pw_hash:
@@ -49,10 +50,15 @@ class ShortLinkManager:
 
         link = Link(
             user_id=self.user_id, original_url=url, link_type='shortened', slug=slug,
-            title=data.get('title', '').strip() or None, notes=data.get('notes', '').strip() or None,
-            expires_at=expires_at, is_active=True, soft_deleted=False, metadata_=meta, password_hash=pw_hash)
+            title=data.get('title', '').strip() or None,
+            notes=data.get('notes', '').strip() or None,
+            expires_at=expires_at, is_active=True, soft_deleted=False,
+            metadata_=meta, password_hash=pw_hash,
+        )
         db.session.add(link)
         db.session.commit()
+        on_link_change(self.user_id)
+        _log(self.user_id, 'shortlink.created', 'link', link.id, slug=slug)
         return link, None
 
     def bulk_create(self, items: List[Dict]) -> Dict[str, Any]:
@@ -69,7 +75,8 @@ class ShortLinkManager:
 
     def get_analytics(self, link_id: int, days: int = 30) -> Optional[Dict[str, Any]]:
         link = Link.query.filter_by(
-            id=link_id, user_id=self.user_id, link_type='shortened', soft_deleted=False).first()
+            id=link_id, user_id=self.user_id, link_type='shortened', soft_deleted=False
+        ).first()
         if not link:
             return None
 
@@ -88,18 +95,30 @@ class ShortLinkManager:
         filtered = {d: c for d, c in daily.items() if d >= cutoff.strftime('%Y-%m-%d')}
 
         return {
-            'link_id': link_id, 'slug': link.slug, 'original_url': link.original_url,
-            'total_clicks': total, 'unique_clicks': redis_data.get('unique_clicks', 0),
-            'daily_clicks': filtered, 'is_active': link.is_active,
+            'link_id': link_id,
+            'slug': link.slug,
+            'original_url': link.original_url,
+            'total_clicks': total,
+            'unique_clicks': redis_data.get('unique_clicks', 0),
+            'daily_clicks': filtered,
+            'is_active': link.is_active,
             'is_expired': bool(link.expires_at and datetime.utcnow() > link.expires_at),
-            'top_countries': sorted(redis_data.get('countries', {}).items(), key=lambda x: x[1], reverse=True)[:5],
-            'top_devices': sorted(redis_data.get('devices', {}).items(), key=lambda x: x[1], reverse=True)[:5],
-            'top_referrers': sorted(redis_data.get('referrers', {}).items(), key=lambda x: x[1], reverse=True)[:5],
+            'is_password_protected': bool(link.password_hash),
+            'top_countries': sorted(
+                redis_data.get('countries', {}).items(), key=lambda x: x[1], reverse=True
+            )[:5],
+            'top_devices': sorted(
+                redis_data.get('devices', {}).items(), key=lambda x: x[1], reverse=True
+            )[:5],
+            'top_referrers': sorted(
+                redis_data.get('referrers', {}).items(), key=lambda x: x[1], reverse=True
+            )[:5],
         }
 
     def get_summary(self, days: int = 30) -> Dict[str, Any]:
         links = Link.query.filter_by(
-            user_id=self.user_id, link_type='shortened', soft_deleted=False).all()
+            user_id=self.user_id, link_type='shortened', soft_deleted=False
+        ).all()
         now = datetime.utcnow()
         total_clicks = sum(l.click_count for l in links)
         top = sorted(links, key=lambda l: l.click_count, reverse=True)[:5]
@@ -109,9 +128,14 @@ class ShortLinkManager:
             'expired_links': sum(1 for l in links if l.expires_at and now > l.expires_at),
             'total_clicks': total_clicks,
             'avg_clicks': round(total_clicks / max(len(links), 1), 2),
-            'top_links': [{'id': l.id, 'slug': l.slug,
-                           'title': l.title or extract_domain(l.original_url),
-                           'clicks': l.click_count} for l in top],
+            'top_links': [
+                {
+                    'id': l.id, 'slug': l.slug,
+                    'title': l.title or extract_domain(l.original_url),
+                    'clicks': l.click_count,
+                }
+                for l in top
+            ],
         }
 
     @staticmethod
@@ -129,6 +153,11 @@ class ShortLinkManager:
         if cl and link.click_count >= cl:
             return None
 
+        if link.password_hash and meta.get('password_protected'):
+            password = client_info.get('password')
+            if not password or not verify_password(password, link.password_hash):
+                return None
+
         link.click_count = Link.click_count + 1
         db.session.commit()
 
@@ -142,8 +171,10 @@ def _track_redis(link_id: int, info: Dict[str, Any]):
     key = f"analytics:{link_id}"
     try:
         raw = redis_client.get(key)
-        data = json.loads(raw) if raw else {'total_clicks': 0, 'unique_clicks': 0,
-                                            'countries': {}, 'devices': {}, 'referrers': {}, 'daily_clicks': {}}
+        data = json.loads(raw) if raw else {
+            'total_clicks': 0, 'unique_clicks': 0,
+            'countries': {}, 'devices': {}, 'referrers': {}, 'daily_clicks': {},
+        }
         data['total_clicks'] += 1
         today = datetime.utcnow().strftime('%Y-%m-%d')
         data['daily_clicks'][today] = data['daily_clicks'].get(today, 0) + 1
@@ -160,3 +191,11 @@ def _track_redis(link_id: int, info: Dict[str, Any]):
         redis_client.setex(key, 86400 * 365, json.dumps(data))
     except Exception as e:
         logger.warning("Analytics tracking failed: %s", e)
+
+
+def _log(user_id, action, entity_type, entity_id=None, **details):
+    try:
+        from app.activity.service import log_activity
+        log_activity(user_id, action, entity_type, entity_id, details or None)
+    except Exception:
+        pass

@@ -40,6 +40,9 @@ class DatabaseManager:
                         from app import models  # noqa: F401
                         db.create_all()
 
+                        # Run custom migrations (indexes, triggers, feature tables)
+                        self._run_migrations()
+
                         tables = db.inspect(db.engine).get_table_names()
                         self._ready = True
                         self._health = {'healthy': True, 'last_check': time.time()}
@@ -51,6 +54,28 @@ class DatabaseManager:
                         time.sleep(min(3 * attempt, 30))
 
             return {'success': False, 'error': 'Database unavailable after 8 attempts'}
+
+    def _run_migrations(self):
+        try:
+            from app.migrations import run_migrations
+            result = run_migrations()
+            status = result.get('status', 'unknown')
+            count = result.get('migrations_run', 0)
+
+            if count > 0:
+                logger.info("Migrations completed: %d applied", count)
+                for detail in result.get('details', []):
+                    logger.info("  %s: %s (%sms)",
+                                detail.get('version'),
+                                detail.get('status'),
+                                detail.get('ms', '?'))
+            elif status == 'success':
+                logger.info("No pending migrations")
+            else:
+                logger.warning("Migration result: %s", result)
+
+        except Exception as e:
+            logger.warning("Migrations failed (non-fatal): %s", e)
 
     def check_health(self):
         now = time.time()

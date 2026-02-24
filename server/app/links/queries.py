@@ -1,7 +1,7 @@
 # server/app/links/queries.py
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
-from sqlalchemy import or_, func, desc, case
+from sqlalchemy import or_, func, desc
 from sqlalchemy.orm import joinedload
 from app.models import Link, LinkTag
 from app.extensions import db
@@ -38,7 +38,9 @@ def view_pinned(user_id: str):
 
 
 def view_archive(user_id: str):
-    return base_query(user_id).filter(Link.archived_at.isnot(None)).order_by(desc(Link.archived_at))
+    return base_query(user_id).filter(
+        Link.archived_at.isnot(None)
+    ).order_by(desc(Link.archived_at))
 
 
 def view_expired(user_id: str):
@@ -54,10 +56,16 @@ def view_short(user_id: str):
     ).order_by(desc(Link.created_at))
 
 
+def view_frequently_used(user_id: str):
+    return base_query(user_id).filter(
+        Link.frequently_used == True, Link.archived_at.is_(None)
+    ).order_by(desc(Link.updated_at))
+
+
 VIEW_MAP = {
     'all': view_all, 'recent': view_recent, 'starred': view_starred,
     'pinned': view_pinned, 'archive': view_archive, 'expired': view_expired,
-    'short': view_short,
+    'short': view_short, 'frequently_used': view_frequently_used,
 }
 
 
@@ -114,5 +122,6 @@ def count_views(user_id: str) -> Dict[str, int]:
         'pinned': b.filter(na, Link.pinned == True).count(),
         'archive': b.filter(Link.archived_at.isnot(None)).count(),
         'short': b.filter(na, Link.link_type == 'shortened').count(),
+        'frequently_used': b.filter(na, Link.frequently_used == True).count(),
         'unassigned': b.filter(na, Link.folder_id.is_(None)).count(),
     }
