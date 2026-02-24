@@ -139,7 +139,7 @@ def _register_blueprints(app):
     from .trash import trash_bp
     from .users import users_bp
 
-    app.register_blueprint(auth_bp)
+    app.register_blueprint(auth_bp,       url_prefix='/auth')
     app.register_blueprint(links_bp,      url_prefix='/api/links')
     app.register_blueprint(folders_bp,    url_prefix='/api/folders')
     app.register_blueprint(tags_bp,       url_prefix='/api/tags')
