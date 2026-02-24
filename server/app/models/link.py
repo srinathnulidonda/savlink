@@ -3,9 +3,7 @@ from datetime import datetime
 from app.extensions import db
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
-import logging
 
-logger = logging.getLogger(__name__)
 
 class Link(db.Model):
     __tablename__ = 'links'
@@ -30,30 +28,16 @@ class Link(db.Model):
     soft_deleted = db.Column(db.Boolean, default=False, nullable=False, index=True)
     click_count = db.Column(db.Integer, default=0, nullable=False)
     metadata_ = db.Column('metadata', JSONB, default=dict)
-    
-    # ✅ ADD THIS COLUMN
     password_hash = db.Column(db.String(255), nullable=True)
 
-    # Relationships
     user = db.relationship('User', backref=db.backref('links', lazy='dynamic'))
     folder = db.relationship('Folder', backref=db.backref('links', lazy='dynamic'))
-    
-    tags = relationship(
-        'Tag',
-        secondary='link_tags',
-        lazy='selectin',
-        viewonly=True
-    )
-    
+    tags = relationship('Tag', secondary='link_tags', lazy='selectin', viewonly=True)
+
     __table_args__ = (
         db.Index('ix_links_user_active', 'user_id', 'soft_deleted', 'archived_at'),
-        db.Index('ix_links_user_pinned', 'user_id', 'pinned', 'soft_deleted'),
-        db.Index('ix_links_user_starred', 'user_id', 'starred', 'soft_deleted'),
         db.Index('ix_links_slug_active', 'slug', 'is_active', 'soft_deleted'),
         db.Index('ix_links_user_created', 'user_id', 'created_at', 'soft_deleted'),
         db.Index('ix_links_user_folder', 'user_id', 'folder_id', 'soft_deleted'),
         db.Index('ix_links_expires', 'expires_at', 'link_type', 'is_active'),
     )
-
-    def __repr__(self):
-        return f'<Link {self.id} [{self.link_type}] {self.original_url[:50]}>'

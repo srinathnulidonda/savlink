@@ -1,19 +1,13 @@
-# requirements.txt
-Flask
-Flask-SQLAlchemy
-Flask-Migrate
-Flask-CORS
-SQLAlchemy
-alembic
+flask
+flask-cors
+flask-sqlalchemy
+flask-migrate
+sqlalchemy
 psycopg2-binary
 gunicorn
 redis
 firebase-admin
-python-dotenv
-sib-api-v3-sdk
 requests
-aiohttp
 beautifulsoup4
-lxml
-html5lib
-qrcode[pil]
+python-dotenv
+stripe

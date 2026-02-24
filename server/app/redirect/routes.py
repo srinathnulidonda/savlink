@@ -1,99 +1,63 @@
 # server/app/redirect/routes.py
-
+import logging
 from flask import redirect as flask_redirect, abort, request, jsonify
 from app.redirect import redirect_bp
-from app.shortlinks.service import AdvancedShortLinkManager
-from app.shortlinks.redirect import resolve_short_link, get_redirect_info
-import logging
+from app.shortlinks.service import ShortLinkManager
 
 logger = logging.getLogger(__name__)
 
+
+def _client_info():
+    ua = request.headers.get('User-Agent', '').lower()
+    if 'mobile' in ua or 'android' in ua or 'iphone' in ua:
+        device = 'mobile'
+    elif 'tablet' in ua or 'ipad' in ua:
+        device = 'tablet'
+    else:
+        device = 'desktop'
+
+    if 'chrome' in ua and 'edge' not in ua:
+        browser = 'Chrome'
+    elif 'firefox' in ua:
+        browser = 'Firefox'
+    elif 'safari' in ua:
+        browser = 'Safari'
+    elif 'edge' in ua:
+        browser = 'Edge'
+    else:
+        browser = 'Other'
+
+    return {
+        'ip': request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr),
+        'referrer': request.headers.get('Referer', 'Direct'),
+        'country': request.headers.get('CF-IPCountry', 'Unknown'),
+        'device_type': device,
+        'browser': browser,
+    }
+
+
 @redirect_bp.route('/<slug>')
 def handle_redirect(slug):
-    """Enhanced redirect handling with analytics tracking"""
     if not slug or len(slug) > 255:
         abort(404)
-    
-    # Get client info for analytics
-    client_info = {
-        'ip': request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr),
-        'user_agent': request.headers.get('User-Agent', ''),
-        'referrer': request.headers.get('Referer', 'Direct'),
-        'country': request.headers.get('CF-IPCountry', 'Unknown'),  # Cloudflare header
-    }
-    
-    # Parse device type from user agent (basic)
-    user_agent = client_info['user_agent'].lower()
-    if 'mobile' in user_agent or 'android' in user_agent or 'iphone' in user_agent:
-        client_info['device_type'] = 'mobile'
-    elif 'tablet' in user_agent or 'ipad' in user_agent:
-        client_info['device_type'] = 'tablet'
-    else:
-        client_info['device_type'] = 'desktop'
-    
-    # Parse browser (basic)
-    if 'chrome' in user_agent:
-        client_info['browser'] = 'Chrome'
-    elif 'firefox' in user_agent:
-        client_info['browser'] = 'Firefox'
-    elif 'safari' in user_agent and 'chrome' not in user_agent:
-        client_info['browser'] = 'Safari'
-    elif 'edge' in user_agent:
-        client_info['browser'] = 'Edge'
-    else:
-        client_info['browser'] = 'Other'
-    
-    # Attempt redirect with analytics
-    destination = resolve_short_link(slug)
-    
-    if not destination:
-        # Log failed redirect attempt
-        logger.warning(f"Failed redirect attempt for slug: {slug} from IP: {client_info['ip']}")
+    dest = ShortLinkManager.track_click(slug, _client_info())
+    if not dest:
         abort(404)
-    
-    # Successful redirect
-    logger.info(f"Successful redirect: {slug} -> {destination[:80]} from {client_info['device_type']}")
-    
-    return flask_redirect(destination, code=302)
+    return flask_redirect(dest, code=302)
 
-@redirect_bp.route('/info/<slug>')
-def get_link_info(slug):
-    """Get information about a short link without redirecting"""
-    if not slug or len(slug) > 255:
-        abort(404)
-    
-    info = get_redirect_info(slug)
-    
-    if not info:
-        abort(404)
-    
-    return jsonify(info)
 
 @redirect_bp.route('/preview/<slug>')
-def preview_link(slug):
-    """Preview a short link destination"""
-    if not slug or len(slug) > 255:
-        abort(404)
-    
-    info = get_redirect_info(slug)
-    
-    if not info:
-        abort(404)
-    
-    # Return preview information
+def preview(slug):
+    from app.models import Link
     from app.utils.url import extract_domain, build_favicon_url
-    
-    domain = extract_domain(info['destination'])
-    
-    preview_data = {
-        'slug': slug,
-        'destination': info['destination'],
-        'domain': domain,
-        'favicon': build_favicon_url(info['destination']),
-        'can_redirect': info['can_redirect'],
-        'click_count': info['click_count'],
-        'is_expired': info['is_expired'],
-        'expires_at': info['expires_at']
-    }
-    
-    return jsonify(preview_data)
+    link = Link.query.filter_by(slug=slug, link_type='shortened', soft_deleted=False).first()
+    if not link:
+        abort(404)
+    return jsonify({
+        'slug': slug, 'destination': link.original_url,
+        'domain': extract_domain(link.original_url),
+        'favicon': build_favicon_url(link.original_url),
+        'click_count': link.click_count,
+        'is_active': link.is_active,
+        'is_expired': bool(link.expires_at and __import__('datetime').datetime.utcnow() > link.expires_at),
+    })

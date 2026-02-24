@@ -1,20 +1,19 @@
 # server/app/responses.py
 from flask import jsonify
-from typing import Any, Optional, Dict
+from typing import Any, Optional
+
 
 def success_response(data: Optional[Any] = None, message: Optional[str] = None, status: int = 200):
-    response = {'success': True}
+    body = {'success': True}
     if data is not None:
-        response['data'] = data
+        body['data'] = data
     if message:
-        response['message'] = message
-    return jsonify(response), status
+        body['message'] = message
+    return jsonify(body), status
+
 
 def error_response(message: str, status: int = 400, code: Optional[str] = None):
-    response = {
-        'success': False,
-        'error': message
-    }
+    body = {'success': False, 'error': message}
     if code:
-        response['code'] = code
-    return jsonify(response), status
+        body['code'] = code
+    return jsonify(body), status

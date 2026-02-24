@@ -1,3 +1,2 @@
+# server/app/shortlinks/__init__.py
 from .routes import shortlinks_bp
-
-__all__ = ['shortlinks_bp']

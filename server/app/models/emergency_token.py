@@ -12,5 +12,5 @@ class EmergencyToken(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
     used_at = db.Column(db.DateTime)
     ip_address = db.Column(db.String(45))
-    
+
     user = db.relationship('User', backref='emergency_tokens')

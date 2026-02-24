@@ -1,36 +1,42 @@
 # server/app/utils/url.py
+import os
 from urllib.parse import urlparse
 
 
-def extract_display_url(url: str) -> str:
+def get_base_url() -> str:
     try:
-        parsed = urlparse(url)
-        domain = parsed.netloc or parsed.path.split('/')[0]
-        domain = domain.lower().removeprefix('www.')
-        path = parsed.path.rstrip('/')
+        from flask import current_app
+        return current_app.config.get('BASE_URL')
+    except RuntimeError:
+        return os.environ.get('BASE_URL')
 
-        if path and path != '/' and len(path) <= 30:
-            return f'{domain}{path}'
 
-        if path and len(path) > 30:
-            return f'{domain}{path[:27]}...'
-
-        return domain
-    except Exception:
-        return url[:50] if url else ''
+def get_short_link_url(slug: str) -> str:
+    return f'{get_base_url()}/r/{slug}'
 
 
 def extract_domain(url: str) -> str:
     try:
-        parsed = urlparse(url)
-        domain = parsed.netloc or parsed.path.split('/')[0]
-        return domain.lower().removeprefix('www.')
+        host = urlparse(url).hostname or ''
+        return host.removeprefix('www.')
     except Exception:
         return ''
 
 
-def build_favicon_url(url: str) -> str:
+def extract_display_url(url: str) -> str:
+    try:
+        p = urlparse(url)
+        host = (p.hostname or '').removeprefix('www.')
+        path = p.path.rstrip('/')
+        if path and path != '/' and len(path) <= 30:
+            return f'{host}{path}'
+        if path and len(path) > 30:
+            return f'{host}{path[:27]}...'
+        return host
+    except Exception:
+        return url[:50] if url else ''
+
+
+def build_favicon_url(url: str, size: int = 32) -> str:
     domain = extract_domain(url)
-    if not domain:
-        return ''
-    return f'https://www.google.com/s2/favicons?domain={domain}&sz=64'
+    return f'https://www.google.com/s2/favicons?domain={domain}&sz={size}' if domain else ''
