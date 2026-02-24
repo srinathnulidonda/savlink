@@ -20,7 +20,7 @@ SORT_MAP = {
 }
 
 
-# Resolve View (paginated link list)
+# ── Resolve View (paginated link list) ───────────────────────────────
 
 def resolve_view(user_id, view='all', search=None, cursor=None, limit=20,
                  sort='created_at', order='desc', **filters):
@@ -52,7 +52,7 @@ def resolve_view(user_id, view='all', search=None, cursor=None, limit=20,
     return links, next_cursor, meta
 
 
-# Dedicated View Endpoints
+# ── Dedicated View Endpoints ─────────────────────────────────────────
 
 def get_recent_items(user_id: str, limit: int = 20) -> Dict[str, Any]:
     key = K.DASH_RECENT.format(user_id)
@@ -151,7 +151,7 @@ def get_starred_items(user_id: str, limit: int = 30) -> Dict[str, Any]:
     return data
 
 
-# Overview (single call for full dashboard load)
+# ── Overview (single call for full dashboard load) ───────────────────
 
 def get_overview(user_id: str) -> Dict[str, Any]:
     key = K.DASH_OVERVIEW.format(user_id)
@@ -180,7 +180,7 @@ def get_overview(user_id: str) -> Dict[str, Any]:
     return data
 
 
-# Stats
+# ── Stats ────────────────────────────────────────────────────────────
 
 def _when(cond):
     return db.case((cond, 1), else_=0)
@@ -250,7 +250,7 @@ def get_stats(user_id: str) -> Dict[str, Any]:
     return stats
 
 
-# Home / Quick Access
+# ── Home / Quick Access ──────────────────────────────────────────────
 
 def get_home_data(user_id: str) -> Dict[str, Any]:
     key = K.DASH_HOME.format(user_id)

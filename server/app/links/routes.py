@@ -8,7 +8,7 @@ from app.links import service
 from app.dashboard.serializers import serialize_link
 
 
-# CRUD
+# ── CRUD ─────────────────────────────────────────────────────────────
 
 @links_bp.route('', methods=['POST'])
 @require_auth
@@ -53,7 +53,7 @@ def delete(link_id):
     return success_response(message='Deleted') if ok else error_response(err, 404)
 
 
-# Pin / Star / Frequently Used
+# ── Pin / Star / Frequently Used ─────────────────────────────────────
 
 @links_bp.route('/<int:link_id>/pin', methods=['POST'])
 @require_auth
@@ -92,7 +92,7 @@ def toggle_frequent(link_id):
     return success_response({'frequently_used': state})
 
 
-# Archive / Restore
+# ── Archive / Restore ────────────────────────────────────────────────
 
 @links_bp.route('/<int:link_id>/archive', methods=['POST'])
 @require_auth
@@ -117,7 +117,7 @@ def toggle_active(link_id):
     return success_response({'is_active': state})
 
 
-# Move / Tags / Duplicate
+# ── Move / Tags / Duplicate ─────────────────────────────────────────
 
 @links_bp.route('/<int:link_id>/move-folder', methods=['POST'])
 @require_auth
@@ -155,7 +155,7 @@ def check_duplicate():
     return success_response({'duplicate': service.check_duplicate(g.current_user.id, data['original_url'])})
 
 
-# Bulk
+# ── Bulk ─────────────────────────────────────────────────────────────
 
 @links_bp.route('/bulk', methods=['POST'])
 @require_auth

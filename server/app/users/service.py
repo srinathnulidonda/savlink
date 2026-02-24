@@ -14,7 +14,7 @@ from app.cache.invalidation import on_user_change, on_bulk_change
 logger = logging.getLogger(__name__)
 
 
-#  Lookup 
+# ── Lookup ───────────────────────────────────────────────────────────
 
 def get_user_by_id(user_id: str) -> Optional[User]:
     return User.query.filter_by(id=user_id).first()
@@ -24,7 +24,7 @@ def get_user_by_email(email: str) -> Optional[User]:
     return User.query.filter_by(email=email).first()
 
 
-#  Profile 
+# ── Profile ──────────────────────────────────────────────────────────
 
 def get_full_profile(user_id: str) -> Optional[Dict[str, Any]]:
     key = K.USER_PROFILE.format(user_id)
@@ -76,7 +76,7 @@ def update_avatar(user_id: str, avatar_url: str) -> bool:
     return True
 
 
-#  Preferences 
+# ── Preferences ──────────────────────────────────────────────────────
 
 def _get_or_create_preferences(user_id: str) -> UserPreferences:
     prefs = UserPreferences.query.filter_by(user_id=user_id).first()
@@ -135,7 +135,7 @@ def reset_preferences(user_id: str) -> Dict[str, Any]:
     return new_prefs.to_dict()
 
 
-#  Emergency Access 
+# ── Emergency Access ─────────────────────────────────────────────────
 
 def enable_emergency_access(user_id: str) -> bool:
     user = get_user_by_id(user_id)
@@ -175,7 +175,7 @@ def get_emergency_status(user_id: str) -> Dict[str, Any]:
     }
 
 
-#  Stats 
+# ── Stats ────────────────────────────────────────────────────────────
 
 def _quick_stats(user_id: str) -> Dict[str, Any]:
     na = Link.archived_at.is_(None)
@@ -258,7 +258,7 @@ def get_user_stats(user_id: str, days: int = 30) -> Dict[str, Any]:
     return stats
 
 
-#  Export 
+# ── Export ───────────────────────────────────────────────────────────
 
 def export_user_data(user_id: str) -> Dict[str, Any]:
     user = get_user_by_id(user_id)
@@ -290,7 +290,7 @@ def export_user_data(user_id: str) -> Dict[str, Any]:
     }
 
 
-#  Account Deletion 
+# ── Account Deletion ────────────────────────────────────────────────
 
 def delete_account(user_id: str) -> bool:
     user = get_user_by_id(user_id)

@@ -66,7 +66,7 @@ def _log(user_id, action, entity_type, entity_id=None, **details):
         pass
 
 
-# Duplicate detection
+# ── Duplicate detection ──────────────────────────────────────────────
 
 def check_duplicate(user_id: str, url: str) -> Optional[Dict]:
     normalized = url.strip().rstrip('/')
@@ -86,13 +86,13 @@ def check_duplicate(user_id: str, url: str) -> Optional[Dict]:
     }
 
 
-#  Read 
+# ── Read ─────────────────────────────────────────────────────────────
 
 def get_link_detail(user_id: str, link_id: int) -> Optional[Link]:
     return _get_link(link_id, user_id)
 
 
-#  Create 
+# ── Create ───────────────────────────────────────────────────────────
 
 def create_link(user_id: str, data: Dict[str, Any]) -> Tuple[Optional[Link], Optional[Dict]]:
     url = data.get('original_url', '').strip()
@@ -163,7 +163,7 @@ def create_link(user_id: str, data: Dict[str, Any]) -> Tuple[Optional[Link], Opt
     return link, extra
 
 
-#  Update 
+# ── Update ───────────────────────────────────────────────────────────
 
 def update_link(user_id: str, link_id: int, data: Dict[str, Any]) -> Tuple[Optional[Link], Optional[str]]:
     link = _get_link(link_id, user_id)
@@ -247,7 +247,7 @@ def update_link(user_id: str, link_id: int, data: Dict[str, Any]) -> Tuple[Optio
     return link, None
 
 
-#  Pin / Star / Frequent 
+# ── Pin / Star / Frequent ───────────────────────────────────────────
 
 def set_pin(user_id: str, link_id: int, pinned: bool) -> Tuple[bool, Optional[str]]:
     link = _get_link(link_id, user_id)
@@ -286,7 +286,7 @@ def toggle_frequently_used(user_id: str, link_id: int) -> Tuple[Optional[bool], 
     return link.frequently_used, None
 
 
-#  Archive / Restore 
+# ── Archive / Restore ────────────────────────────────────────────────
 
 def archive_link(user_id: str, link_id: int) -> Tuple[bool, Optional[str]]:
     link = _get_link(link_id, user_id)
@@ -326,7 +326,7 @@ def toggle_active(user_id: str, link_id: int) -> Tuple[Optional[bool], Optional[
     return link.is_active, None
 
 
-#  Delete 
+# ── Delete ───────────────────────────────────────────────────────────
 
 def soft_delete_link(user_id: str, link_id: int) -> Tuple[bool, Optional[str]]:
     link = _get_link(link_id, user_id)
@@ -342,7 +342,7 @@ def soft_delete_link(user_id: str, link_id: int) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-#  Duplicate 
+# ── Duplicate ────────────────────────────────────────────────────────
 
 def duplicate_link(user_id: str, link_id: int) -> Tuple[Optional[Link], Optional[str]]:
     original = _get_link(link_id, user_id)
@@ -374,7 +374,7 @@ def duplicate_link(user_id: str, link_id: int) -> Tuple[Optional[Link], Optional
     return clone, None
 
 
-#  Move / Tags 
+# ── Move / Tags ──────────────────────────────────────────────────────
 
 def move_to_folder(user_id: str, link_id: int, folder_id: Optional[int]) -> bool:
     link = _get_link(link_id, user_id)
@@ -417,7 +417,7 @@ def update_link_tags(user_id: str, link_id: int, add_ids: List[int], remove_ids:
     return True
 
 
-#  Expiration 
+# ── Expiration ───────────────────────────────────────────────────────
 
 def get_expiring_links(user_id: str, days_ahead: int = 7) -> List[Link]:
     cutoff = datetime.utcnow() + timedelta(days=days_ahead)
