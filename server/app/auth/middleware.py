@@ -1,6 +1,6 @@
 # server/app/auth/middleware.py
-
 import time
+import hashlib
 from functools import wraps
 from flask import request, g
 from app.responses import error_response
@@ -16,188 +16,158 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_local_auth = {}
+_LOCAL_TTL = 30
+_LOCAL_MAX = 100
+
+
+def _token_key(token):
+    return hashlib.sha256(token.encode()).hexdigest()[:20]
+
+
+def _local_get(token):
+    key = _token_key(token)
+    entry = _local_auth.get(key)
+    if entry and entry[2] > time.time():
+        return entry[0], entry[1]
+    if entry:
+        _local_auth.pop(key, None)
+    return None, None
+
+
+def _local_set(token, user_data, source):
+    now = time.time()
+    if len(_local_auth) >= _LOCAL_MAX:
+        expired = [k for k, v in _local_auth.items() if v[2] <= now]
+        for k in expired:
+            del _local_auth[k]
+        if len(_local_auth) >= _LOCAL_MAX:
+            oldest = min(_local_auth, key=lambda k: _local_auth[k][2])
+            del _local_auth[oldest]
+    _local_auth[_token_key(token)] = (user_data, source, now + _LOCAL_TTL)
+
 
 def require_auth(f):
-    """
-    Authentication middleware with multi-layer caching.
-    
-    Auth flow:
-    1. Extract Bearer token from header
-    2. Rate limit check (Redis)
-    3. Verify token (Redis cache → Firebase Admin SDK)
-    4. Get user data (Redis cache → Database)
-    5. Set g.current_user for the request
-    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        start_time = time.time()
-        
-        # ── Step 1: Extract token ──
+        start = time.time()
+
         auth_header = request.headers.get('Authorization')
-        
         if not auth_header:
-            logger.warning(f"No auth header from {request.remote_addr}")
             return error_response('Authorization header required', 401, 'AUTH_MISSING')
-        
+
         if not auth_header.startswith('Bearer '):
-            logger.warning(f"Invalid auth format from {request.remote_addr}: {auth_header[:20]}")
-            return error_response('Invalid authorization format. Use: Bearer <token>', 401, 'AUTH_FORMAT')
-        
+            return error_response('Invalid authorization format', 401, 'AUTH_FORMAT')
+
         token = auth_header[7:].strip()
-        
         if not token or len(token) < 100:
-            logger.warning(f"Token too short from {request.remote_addr}: {len(token)} chars")
             return error_response('Invalid token', 401, 'AUTH_INVALID')
-        
-        # ── Step 2: Rate limiting ──
-        client_ip = _get_client_ip()
-        is_allowed, remaining = check_auth_rate_limit(client_ip)
-        
-        if not is_allowed:
-            logger.warning(f"Auth rate limit exceeded for IP: {client_ip}")
-            return error_response('Too many requests', 429, 'RATE_LIMITED')
-        
+
         try:
-            # ── Step 3: Try Firebase token ──
-            logger.debug(f"Verifying token for IP {client_ip}, length {len(token)}")
-            user, auth_source = _authenticate_firebase(token)
-            
+            user, source = _local_get(token)
             if user:
-                logger.info(f"Auth SUCCESS: {user.get('id', 'unknown')[:8]}, source: {auth_source}")
                 g.current_user = user
-                g.auth_source = auth_source
-                
-                # Log performance
-                duration_ms = (time.time() - start_time) * 1000
-                if duration_ms > 500:
-                    logger.warning(f"Slow auth: {duration_ms:.0f}ms for {user.get('id', 'unknown')[:8]}")
-                
+                g.auth_source = f'{source}_local'
                 return f(*args, **kwargs)
-            
-            # ── Step 4: Try emergency session ──
+
+            client_ip = _get_client_ip()
+            is_allowed, _ = check_auth_rate_limit(client_ip)
+            if not is_allowed:
+                return error_response('Too many requests', 429, 'RATE_LIMITED')
+
+            user, source = _authenticate_firebase(token)
+            if user:
+                _local_set(token, user, source)
+                g.current_user = user
+                g.auth_source = source
+
+                dur = (time.time() - start) * 1000
+                if dur > 500:
+                    logger.warning("Slow auth: %.0fms for %s (%s)",
+                                   dur, user.get('id', '?')[:8], source)
+                return f(*args, **kwargs)
+
             emergency_user = verify_emergency_session(token)
-            
             if emergency_user:
-                emergency_dict = emergency_user.to_dict() if hasattr(emergency_user, 'to_dict') else emergency_user
-                logger.info(f"Emergency auth for {emergency_dict.get('id', 'unknown')[:8]}")
-                g.current_user = emergency_dict
+                user_dict = emergency_user.to_dict() if hasattr(emergency_user, 'to_dict') else emergency_user
+                g.current_user = user_dict
                 g.auth_source = 'emergency'
                 return f(*args, **kwargs)
-            
-            logger.warning(f"Auth FAILED: No valid user found for token from {client_ip}")
+
             return error_response('Invalid or expired token', 401, 'AUTH_EXPIRED')
-            
+
         except Exception as e:
-            logger.error(f"Auth middleware error: {e}", exc_info=True)
+            logger.error("Auth error: %s", e, exc_info=True)
             return error_response('Authentication failed', 500, 'AUTH_ERROR')
-    
+
     return decorated_function
 
 
-def _authenticate_firebase(token: str):
-    """
-    Verify Firebase token and get user data.
-    Uses Redis caching at both token and user levels.
-    
-    Returns: (user_dict, auth_source) or (None, None)
-    """
-    # ── Verify token (Redis cached) ──
+def _authenticate_firebase(token):
     decoded_token = verify_id_token(token)
-    
     if not decoded_token:
-        logger.debug("Token verification failed")
         return None, None
-    
+
     user_info = extract_user_info(decoded_token)
     uid = user_info.get('uid')
-    
     if not uid:
-        logger.error("Token verified but no UID found in decoded token")
         return None, None
-    
-    # ── Get user data (try Redis first, then DB) ──
+
     user_data = get_cached_user_data(uid)
-    
     if user_data:
-        # Cache hit - return immediately (no DB query)
-        logger.debug(f"User cache HIT for {uid[:8]}")
         return user_data, 'firebase_cached'
-    
-    # Cache miss - provision user (DB read/write) and cache
-    logger.debug(f"User cache MISS for {uid[:8]}, provisioning")
+
     try:
         user = provision_user_cached(user_info)
-        
         if user:
             user_dict = user.to_dict()
-            # Cache for subsequent requests
             cache_user_data(uid, user_dict)
             return user_dict, 'firebase'
-        
-        logger.error(f"User provisioning returned None for {uid[:8]}")
         return None, None
     except Exception as e:
-        logger.error(f"User provisioning failed for {uid[:8]}: {e}", exc_info=True)
+        logger.error("Provisioning failed for %s: %s", uid[:8], e, exc_info=True)
         return None, None
 
 
-def _get_client_ip() -> str:
-    """Extract real client IP from request headers."""
-    # Check X-Forwarded-For (load balancer/proxy)
+def _get_client_ip():
     forwarded = request.headers.get('X-Forwarded-For')
     if forwarded:
-        # Take the first IP (client IP)
         return forwarded.split(',')[0].strip()
-    
-    # Check X-Real-IP (nginx)
-    real_ip = request.headers.get('X-Real-IP')
-    if real_ip:
-        return real_ip.strip()
-    
-    return request.remote_addr or '0.0.0.0'
+    return request.headers.get('X-Real-IP', request.remote_addr or '0.0.0.0').strip()
 
 
 def require_verified_email(f):
-    """Require email verification in addition to authentication."""
     @wraps(f)
     @require_auth
     def decorated_function(*args, **kwargs):
         user = g.current_user
-        
-        if isinstance(user, dict):
-            email_verified = user.get('email_verified', False)
-        else:
-            email_verified = getattr(user, 'email_verified', False)
-        
-        if not email_verified and g.auth_source != 'emergency':
+        verified = user.get('email_verified', False) if isinstance(user, dict) else getattr(user, 'email_verified', False)
+        if not verified and g.auth_source != 'emergency':
             return error_response('Email verification required', 403, 'EMAIL_NOT_VERIFIED')
-        
         return f(*args, **kwargs)
-    
     return decorated_function
 
 
 def optional_auth(f):
-    """Optional authentication - sets g.current_user if token provided, None otherwise."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        
         g.current_user = None
         g.auth_source = None
-        
+
+        auth_header = request.headers.get('Authorization')
         if auth_header and auth_header.startswith('Bearer '):
             token = auth_header[7:].strip()
-            
             if token and len(token) >= 100:
                 try:
-                    user, source = _authenticate_firebase(token)
+                    user, source = _local_get(token)
+                    if not user:
+                        user, source = _authenticate_firebase(token)
+                        if user:
+                            _local_set(token, user, source)
                     if user:
                         g.current_user = user
                         g.auth_source = source
                 except Exception:
-                    pass  # Optional auth - don't fail the request
-        
+                    pass
         return f(*args, **kwargs)
-    
     return decorated_function

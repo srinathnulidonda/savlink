@@ -1,5 +1,4 @@
 # server/app/cache/warmup.py
-
 import logging
 import threading
 from app.cache.redis_layer import cache
@@ -9,25 +8,32 @@ logger = logging.getLogger(__name__)
 
 
 def warm_user_cache(user_id: str, background: bool = True):
-    """Pre-load hot data right after authentication succeeds."""
     if not cache.available():
         return
-    # skip if already warm
     if cache.exists(K.DASH_HOME.format(user_id)):
         return
+
     if background:
-        threading.Thread(target=_warm, args=(user_id,), daemon=True).start()
+        try:
+            from flask import current_app
+            app = current_app._get_current_object()
+        except RuntimeError:
+            return
+        threading.Thread(target=_warm, args=(user_id, app), daemon=True).start()
     else:
         _warm(user_id)
 
 
-def _warm(user_id: str):
+def _warm(user_id: str, app=None):
+    ctx = None
     try:
-        from flask import current_app
-        with current_app._get_current_object().app_context():
-            _do_warm(user_id)
-    except RuntimeError:
+        if app:
+            ctx = app.app_context()
+            ctx.push()
         _do_warm(user_id)
+    finally:
+        if ctx:
+            ctx.pop()
 
 
 def _do_warm(user_id: str):
