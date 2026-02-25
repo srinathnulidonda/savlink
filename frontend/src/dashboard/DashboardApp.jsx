@@ -13,6 +13,7 @@ import DashboardService from '../services/dashboard.service';
 import LinksService from '../services/links.service';
 import { useAuth } from '../auth/context/AuthContext';
 import toast from 'react-hot-toast';
+import apiService from '../utils/api';
 
 // ── LinksPageWrapper ────────────────────────────────────────
 function LinksPageWrapper({
@@ -122,6 +123,7 @@ export default function Dashboard() {
     const handleLinkAdded = useCallback(() => {
         setIsAddLinkOpen(false);
         lastFetchParamsRef.current = { view: '', searchQuery: '' };
+        apiService.invalidateCache();
         fetchDashboardData();
     }, []);
 

@@ -1,26 +1,10 @@
-// frontend/src/config/config.js - Updated with environment detection
-const isDevelopment = import.meta.env.DEV || process.env.NODE_ENV === 'development';
-
-// Auto-detect API URL based on environment
-const getApiBaseUrl = () => {
-  // If explicitly set in env, use it
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  
-  // Auto-detect based on current location
-  if (isDevelopment) {
-    return 'https://savlinks-test-g445.onrender.com';
-  }
-  
-  // Production fallback
-  return 'https://savlinks-test-g445.onrender.com';
-};
+// frontend/src/config/config.js
 
 export const config = {
-    apiBaseUrl: getApiBaseUrl(),
+    apiBaseUrl: import.meta.env.VITE_API_URL,
+    
     appName: 'Savlink',
-    appVersion: '1.0.0',
+    appVersion: '.001',
 
     features: {
         googleAuth: true,
@@ -30,9 +14,9 @@ export const config = {
     },
 
     tokens: {
-        accessTokenKey: 'auth_token', // Simplified
+        accessTokenKey: 'auth_token',
         refreshTokenKey: 'savlink_refresh_token',
-        userDataKey: 'user', // Simplified
+        userDataKey: 'user',
         tokenExpiry: 15 * 60 * 1000,
         refreshExpiry: 7 * 24 * 60 * 60 * 1000,
     },
@@ -89,32 +73,12 @@ export const config = {
             maxLength: 100,
         },
     },
-
-    isDevelopment,
-    isProduction: !isDevelopment,
-    debug: isDevelopment,
-    logLevel: isDevelopment ? 'debug' : 'error',
 }
 
 export const getApiUrl = (endpoint) => {
     const baseUrl = config.apiBaseUrl.replace(/\/$/, '');
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     return `${baseUrl}${cleanEndpoint}`;
-}
-
-export const log = {
-    debug: (...args) => {
-        if (config.debug) console.log('[DEBUG]', ...args)
-    },
-    info: (...args) => {
-        if (config.logLevel !== 'error') console.info('[INFO]', ...args)
-    },
-    warn: (...args) => {
-        console.warn('[WARN]', ...args)
-    },
-    error: (...args) => {
-        console.error('[ERROR]', ...args)
-    },
 }
 
 export default config

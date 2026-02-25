@@ -11,3 +11,5 @@ requests
 beautifulsoup4
 python-dotenv
 sib-api-v3-sdk
+fastapi
+uvicorn

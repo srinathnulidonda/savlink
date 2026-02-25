@@ -206,12 +206,20 @@ export default function Collections({
                     const active = isActive(folder);
 
                     return (
-                        <button
+                        <div
                             key={folder.id}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => handleClick(folder)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    handleClick(folder);
+                                }
+                            }}
                             onContextMenu={(e) => handleContextMenu(e, folder)}
                             className={`w-full flex items-center gap-2.5 px-3 py-[7px]
-                                       rounded-lg text-[13px] transition-all group
+                                       rounded-lg text-[13px] transition-all group cursor-pointer
                                        ${active
                                     ? 'bg-white/[0.06] text-white'
                                     : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.03]'
@@ -240,7 +248,7 @@ export default function Collections({
                                     onTogglePin?.(folder.id);
                                 }}
                             />
-                        </button>
+                        </div>
                     );
                 })}
             </div>
@@ -265,29 +273,44 @@ function StarIndicator() {
 }
 
 // ── Pin indicator / toggle ──────────────────────────────────
+// ✅ FIXED: Changed from <button> to <span role="button"> to avoid nesting buttons
 function PinControl({ pinned, onToggle }) {
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggle(e);
+        }
+    };
+
     if (pinned) {
         return (
-            <button
+            <span
+                role="button"
+                tabIndex={0}
                 onClick={onToggle}
-                className="flex-shrink-0 p-0.5 rounded transition-colors
+                onKeyDown={handleKeyDown}
+                className="flex-shrink-0 p-0.5 rounded transition-colors cursor-pointer
                            text-primary/60 hover:text-primary"
                 title="Unpin from sidebar"
             >
                 <PinSmIcon />
-            </button>
+            </span>
         );
     }
     return (
-        <button
+        <span
+            role="button"
+            tabIndex={0}
             onClick={onToggle}
-            className="flex-shrink-0 p-0.5 rounded transition-all
+            onKeyDown={handleKeyDown}
+            className="flex-shrink-0 p-0.5 rounded transition-all cursor-pointer
                        text-gray-700 opacity-0 group-hover:opacity-100
                        hover:text-gray-400"
             title="Pin to sidebar"
         >
             <PinSmIcon />
-        </button>
+        </span>
     );
 }
 

@@ -1,5 +1,4 @@
 // frontend/src/auth/services/auth.service.js
-// Production-grade auth service - Single source of truth
 
 import {
   getAuth,
@@ -20,8 +19,7 @@ import {
 } from 'firebase/auth'
 import { app } from '../../config/firebase'
 
-// ─── Constants ───────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
+const API_BASE_URL = import.meta.env.VITE_API_URL
 
 const STORAGE_KEYS = {
   TOKEN: 'savlink_token',
@@ -31,13 +29,15 @@ const STORAGE_KEYS = {
 }
 
 const TIMING = {
-  TOKEN_REFRESH_MS: 50 * 60 * 1000,      // 50 min (tokens expire at 60)
-  BACKGROUND_SYNC_MS: 5 * 60 * 1000,     // 5 min
-  BACKEND_SYNC_DELAY_MS: 200,            // delay before backend sync
-  STALE_THRESHOLD_MS: 10 * 60 * 1000,    // 10 min before data is stale
-  MAX_RETRY_MS: 15000,                   // max request timeout
-  INIT_TIMEOUT_MS: 8000                  // max time to wait for init
+  TOKEN_REFRESH_MS: 50 * 60 * 1000,
+  BACKGROUND_SYNC_MS: 5 * 60 * 1000,
+  BACKEND_SYNC_DELAY_MS: 300,
+  STALE_THRESHOLD_MS: 10 * 60 * 1000,
+  MAX_RETRY_MS: 15000,
+  INIT_TIMEOUT_MS: 8000
 }
+
+const SYNC_MAX_ATTEMPTS = 3
 
 const ERROR_MESSAGES = {
   'auth/email-already-in-use': 'This email is already registered.',
@@ -59,14 +59,14 @@ const ERROR_MESSAGES = {
   'auth/missing-initial-state': 'Browser session issue. Please try again.'
 }
 
-// ─── Firebase Setup ──────────────────────────────────────────────────
+//  Firebase Setup 
 const auth = getAuth(app)
 const googleProvider = new GoogleAuthProvider()
 googleProvider.setCustomParameters({ prompt: 'select_account' })
 googleProvider.addScope('email')
 googleProvider.addScope('profile')
 
-// ─── Internal State ──────────────────────────────────────────────────
+//  Internal State 
 let _currentUser = null
 let _currentToken = null
 let _listeners = new Set()
@@ -76,8 +76,10 @@ let _tokenRefreshTimer = null
 let _backgroundSyncTimer = null
 let _isSyncing = false
 let _lastSyncTime = 0
+let _googleLoginInProgress = false
+let _authStateVersion = 0
 
-// ─── Safe Storage ────────────────────────────────────────────────────
+//  Safe Storage 
 const storage = {
   set(key, value) {
     try {
@@ -96,7 +98,6 @@ const storage = {
   },
   clear() {
     Object.values(STORAGE_KEYS).forEach(key => this.remove(key))
-    // Also clean legacy keys from old implementation
     this.remove('auth_token')
     this.remove('user')
     this.remove('savlink_cached_user')
@@ -109,15 +110,16 @@ const storage = {
   }
 }
 
-// ─── Notification System ─────────────────────────────────────────────
+//  Notification System 
 function notifyListeners() {
+  _authStateVersion++
   const snapshot = { user: _currentUser, token: _currentToken }
   _listeners.forEach(fn => {
     try { fn(snapshot) } catch (e) { console.error('Auth listener error:', e) }
   })
 }
 
-// ─── Token Management ────────────────────────────────────────────────
+//  Token Management 
 async function refreshToken(force = false) {
   const firebaseUser = auth.currentUser
   if (!firebaseUser) {
@@ -133,7 +135,6 @@ async function refreshToken(force = false) {
     return token
   } catch (error) {
     console.error('[Auth] Token refresh failed:', error.code || error.message)
-    
     if (error.code === 'auth/user-token-expired' || error.code === 'auth/user-not-found') {
       await handleSignOut('token_expired')
     }
@@ -144,25 +145,36 @@ async function refreshToken(force = false) {
 function startTokenRefreshTimer() {
   stopTokenRefreshTimer()
   _tokenRefreshTimer = setInterval(async () => {
-    if (auth.currentUser) {
-      await refreshToken(true)
-    }
+    if (auth.currentUser) await refreshToken(true)
   }, TIMING.TOKEN_REFRESH_MS)
 }
 
 function stopTokenRefreshTimer() {
-  if (_tokenRefreshTimer) {
-    clearInterval(_tokenRefreshTimer)
-    _tokenRefreshTimer = null
-  }
+  if (_tokenRefreshTimer) { clearInterval(_tokenRefreshTimer); _tokenRefreshTimer = null }
 }
 
-// ─── Backend Sync ────────────────────────────────────────────────────
-async function syncWithBackend(token, forceSync = false) {
-  if (_isSyncing) return _currentUser
-  
+//  Wait for auth state to propagate 
+async function _waitForAuthReady(timeoutMs = 3000) {
+  const startVersion = _authStateVersion
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    if (_currentUser && _authStateVersion > startVersion) {
+      await new Promise(r => setTimeout(r, 50))
+      return _currentUser
+    }
+    await new Promise(r => setTimeout(r, 30))
+  }
+
+  return _currentUser
+}
+
+//  Backend Sync 
+async function syncWithBackend(token, forceSync = false, _attempt = 0) {
+  if (_isSyncing && _attempt === 0) return _currentUser
+
   const now = Date.now()
-  if (!forceSync && now - _lastSyncTime < TIMING.STALE_THRESHOLD_MS) {
+  if (!forceSync && _attempt === 0 && now - _lastSyncTime < TIMING.STALE_THRESHOLD_MS) {
     return _currentUser
   }
 
@@ -174,55 +186,54 @@ async function syncWithBackend(token, forceSync = false) {
 
     const response = await fetch(`${API_BASE_URL}/auth/me`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
-        // ✅ REMOVED Content-Type (unnecessary for GET, triggers extra preflight)
-      },
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
       signal: controller.signal,
-      credentials: 'omit',       // ✅ FIX: was 'include' — we use Bearer tokens, NOT cookies
-      mode: 'cors'               // ✅ Explicit CORS mode
+      credentials: 'omit',
+      mode: 'cors'
     })
 
     clearTimeout(timeoutId)
 
     if (response.ok) {
       const data = await response.json()
-      
       if (data.success && data.data) {
-        const backendUser = data.data
-        
         _currentUser = {
-          ...backendUser,
-          email_verified: auth.currentUser?.emailVerified ?? backendUser.email_verified,
+          ...data.data,
+          email_verified: auth.currentUser?.emailVerified ?? data.data.email_verified,
           _synced: true,
           _lastSync: now
         }
-
         storage.set(STORAGE_KEYS.USER, _currentUser)
         storage.set(STORAGE_KEYS.LAST_SYNC, now)
         _lastSyncTime = now
-        
         notifyListeners()
         return _currentUser
       }
-    } else if (response.status === 401) {
-      const newToken = await refreshToken(true)
-      if (!newToken) {
-        await handleSignOut('backend_auth_failed')
-        return null
+    }
+
+    const retryable = [401, 502, 503]
+    if (retryable.includes(response.status) && _attempt < SYNC_MAX_ATTEMPTS) {
+      const delay = Math.min(1000 * Math.pow(2, _attempt), 5000)
+      _isSyncing = false
+      await new Promise(r => setTimeout(r, delay))
+      if (response.status === 401) {
+        const freshToken = await refreshToken(true)
+        if (freshToken) return syncWithBackend(freshToken, true, _attempt + 1)
+      } else {
+        return syncWithBackend(token, true, _attempt + 1)
       }
-      console.warn('[Auth] Backend returned 401, token refreshed for next request')
-    } else {
-      console.warn(`[Auth] Backend sync returned ${response.status}`)
     }
 
     return _currentUser
   } catch (error) {
-    if (error.name === 'AbortError') {
-      console.warn('[Auth] Backend sync timed out')
-    } else {
+    if (error.name !== 'AbortError') {
       console.warn('[Auth] Backend sync failed:', error.message)
+    }
+    if (_attempt < SYNC_MAX_ATTEMPTS && error.name !== 'AbortError') {
+      _isSyncing = false
+      const delay = Math.min(1000 * Math.pow(2, _attempt), 5000)
+      await new Promise(r => setTimeout(r, delay))
+      return syncWithBackend(token, true, _attempt + 1)
     }
     return _currentUser
   } finally {
@@ -233,27 +244,20 @@ async function syncWithBackend(token, forceSync = false) {
 function startBackgroundSync() {
   stopBackgroundSync()
   _backgroundSyncTimer = setInterval(async () => {
-    if (auth.currentUser && _currentToken) {
-      await syncWithBackend(_currentToken)
-    }
+    if (auth.currentUser && _currentToken) await syncWithBackend(_currentToken)
   }, TIMING.BACKGROUND_SYNC_MS)
 }
 
 function stopBackgroundSync() {
-  if (_backgroundSyncTimer) {
-    clearInterval(_backgroundSyncTimer)
-    _backgroundSyncTimer = null
-  }
+  if (_backgroundSyncTimer) { clearInterval(_backgroundSyncTimer); _backgroundSyncTimer = null }
 }
 
-// ─── Auth State Handler (SINGLE listener) ────────────────────────────
+//  Auth State Handler 
 async function handleAuthStateChange(firebaseUser) {
   if (firebaseUser) {
-    // User is signed in
-    const token = await refreshToken()
+    const token = await refreshToken(true)
     if (!token) return
 
-    // Build user data from Firebase immediately (fast)
     const firebaseData = {
       id: firebaseUser.uid,
       uid: firebaseUser.uid,
@@ -268,21 +272,18 @@ async function handleAuthStateChange(firebaseUser) {
       _lastSync: 0
     }
 
-    _currentUser = firebaseData
     storage.set(STORAGE_KEYS.USER, firebaseData)
     storage.set(STORAGE_KEYS.TOKEN, token)
-
+    
+    _currentUser = firebaseData
+    _currentToken = token
+    
     notifyListeners()
 
-    // Start background services
     startTokenRefreshTimer()
     startBackgroundSync()
-
-    // Sync with backend in background (don't block UI)
     setTimeout(() => syncWithBackend(token, true), TIMING.BACKEND_SYNC_DELAY_MS)
-
   } else {
-    // User signed out
     _currentUser = null
     _currentToken = null
     storage.clear()
@@ -292,55 +293,45 @@ async function handleAuthStateChange(firebaseUser) {
   }
 }
 
-// ─── Sign Out Handler ────────────────────────────────────────────────
+//  Sign Out Handler 
 async function handleSignOut(reason = 'user_action') {
   try {
     stopTokenRefreshTimer()
     stopBackgroundSync()
     _currentUser = null
     _currentToken = null
+    _googleLoginInProgress = false
     storage.clear()
-    
+    sessionStorage.removeItem('auth_redirect_pending')
     await signOut(auth)
   } catch (error) {
     console.error('[Auth] Sign out error:', error)
   }
-  
   notifyListeners()
-  
   if (reason !== 'user_action') {
     window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { reason } }))
   }
 }
 
-// ─── Initialization ──────────────────────────────────────────────────
+//  Initialization 
 function initialize() {
   if (_initPromise) return _initPromise
 
   _initPromise = new Promise(async (resolve) => {
     try {
-      // Step 1: Restore cached state for instant UI
       const cachedUser = storage.get(STORAGE_KEYS.USER)
       const cachedToken = storage.get(STORAGE_KEYS.TOKEN, false)
-      
       if (cachedUser && cachedToken) {
         _currentUser = { ...cachedUser, _synced: false }
         _currentToken = cachedToken
         notifyListeners()
       }
 
-      // Step 2: Set persistence preference
       const preference = storage.get(STORAGE_KEYS.PREFERENCE, false)
       try {
-        const persistence = preference === 'session' 
-          ? browserSessionPersistence 
-          : browserLocalPersistence
-        await setPersistence(auth, persistence)
-      } catch {
-        // Use default persistence
-      }
+        await setPersistence(auth, preference === 'session' ? browserSessionPersistence : browserLocalPersistence)
+      } catch { /* default */ }
 
-      // Step 3: Wait for Firebase auth state (with timeout)
       await Promise.race([
         new Promise((res) => {
           const unsub = onAuthStateChanged(auth, async (user) => {
@@ -352,19 +343,21 @@ function initialize() {
         new Promise((res) => setTimeout(res, TIMING.INIT_TIMEOUT_MS))
       ])
 
-      // Step 4: Handle redirect results (for OAuth redirect flow)
       try {
+        const hadPending = sessionStorage.getItem('auth_redirect_pending')
         const result = await getRedirectResult(auth)
         if (result?.user) {
           await handleAuthStateChange(result.user)
           sessionStorage.removeItem('auth_redirect_pending')
           window.dispatchEvent(new CustomEvent('auth:redirect-success'))
+        } else if (hadPending) {
+          sessionStorage.removeItem('auth_redirect_pending')
         }
       } catch (redirectError) {
+        sessionStorage.removeItem('auth_redirect_pending')
         if (redirectError.code !== 'auth/no-auth-event') {
           console.warn('[Auth] Redirect result error:', redirectError.code)
         }
-        sessionStorage.removeItem('auth_redirect_pending')
       }
 
       _initialized = true
@@ -379,38 +372,29 @@ function initialize() {
   return _initPromise
 }
 
-// Register the SINGLE auth state listener AFTER initialization
 onAuthStateChanged(auth, async (user) => {
   if (!_initialized) return
   await handleAuthStateChange(user)
 })
 
-// Start initialization immediately
 initialize()
 
-// ─── Exported Service ────────────────────────────────────────────────
+//  Exported Service 
 export const AuthService = {
-  // ── Initialization ──
   async ensureInitialized() {
     if (_initialized) return true
     return initialize()
   },
 
-  // ── Registration ──
   async register({ email, password, name }) {
     try {
       await this.ensureInitialized()
-
       const credential = await createUserWithEmailAndPassword(auth, email, password)
-      
-      if (name) {
-        await updateProfile(credential.user, { displayName: name })
-      }
+      if (name) await updateProfile(credential.user, { displayName: name })
 
       await setPersistence(auth, browserLocalPersistence)
       storage.set(STORAGE_KEYS.PREFERENCE, 'local')
 
-      // Send verification email
       try {
         await sendEmailVerification(credential.user, {
           url: `${window.location.origin}/login?email=${encodeURIComponent(email)}`
@@ -419,9 +403,7 @@ export const AuthService = {
         console.warn('[Auth] Verification email failed:', emailError.message)
       }
 
-      // handleAuthStateChange fires automatically via onAuthStateChanged
-      // Wait briefly for it to process
-      await new Promise(r => setTimeout(r, 100))
+      await _waitForAuthReady(2000)
 
       return {
         success: true,
@@ -430,29 +412,21 @@ export const AuthService = {
       }
     } catch (error) {
       console.error('[Auth] Registration error:', error.code)
-      return {
-        success: false,
-        error: { code: error.code, message: getErrorMessage(error.code) }
-      }
+      return { success: false, error: { code: error.code, message: getErrorMessage(error.code) } }
     }
   },
 
-  // ── Email/Password Login ──
   async login({ email, password, rememberMe = true }) {
     try {
       await this.ensureInitialized()
 
-      const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence
-      
       try {
-        await setPersistence(auth, persistence)
+        await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence)
         storage.set(STORAGE_KEYS.PREFERENCE, rememberMe ? 'local' : 'session')
-      } catch { /* use default */ }
+      } catch { /* default */ }
 
-      const credential = await signInWithEmailAndPassword(auth, email, password)
-      
-      // handleAuthStateChange fires automatically
-      await new Promise(r => setTimeout(r, 100))
+      await signInWithEmailAndPassword(auth, email, password)
+      await _waitForAuthReady(3000)
 
       return {
         success: true,
@@ -461,82 +435,81 @@ export const AuthService = {
       }
     } catch (error) {
       console.error('[Auth] Login error:', error.code)
-      return {
-        success: false,
-        error: { code: error.code, message: getErrorMessage(error.code) }
-      }
+      return { success: false, error: { code: error.code, message: getErrorMessage(error.code) } }
     }
   },
 
-  // ── Google OAuth ──
-  async loginWithGoogle(forceRedirect = false) {
+  async loginWithGoogle() {
+    if (_googleLoginInProgress) {
+      return { success: false, cancelled: true }
+    }
+
+    _googleLoginInProgress = true
+
     try {
       await this.ensureInitialized()
 
       try {
         await setPersistence(auth, browserLocalPersistence)
         storage.set(STORAGE_KEYS.PREFERENCE, 'local')
-      } catch { /* use default */ }
+      } catch { /* default */ }
 
-      const shouldRedirect = forceRedirect || detectRedirectRequired()
+      const mustRedirect = detectRedirectRequired()
 
-      if (shouldRedirect) {
+      if (!mustRedirect) {
+        try {
+          await signInWithPopup(auth, googleProvider)
+          await _waitForAuthReady(3000)
+
+          return {
+            success: true,
+            data: { user: _currentUser },
+            message: 'Welcome!'
+          }
+        } catch (popupError) {
+          if (popupError.code === 'auth/popup-closed-by-user' ||
+              popupError.code === 'auth/cancelled-popup-request') {
+            return { success: false, cancelled: true }
+          }
+          if (popupError.code === 'auth/popup-blocked') {
+            console.warn('[Auth] Popup blocked, falling back to redirect')
+          } else {
+            throw popupError
+          }
+        }
+      }
+
+      try {
         sessionStorage.setItem('auth_redirect_pending', 'true')
         await signInWithRedirect(auth, googleProvider)
         return { success: true, pending: true, message: 'Redirecting to Google...' }
-      }
-
-      // Try popup first
-      try {
-        const result = await signInWithPopup(auth, googleProvider)
-        await new Promise(r => setTimeout(r, 100))
-
+      } catch (redirectError) {
+        sessionStorage.removeItem('auth_redirect_pending')
         return {
-          success: true,
-          data: { user: _currentUser },
-          message: 'Welcome!'
+          success: false,
+          error: { code: 'auth/redirect-failed', message: 'Unable to open Google sign-in.' }
         }
-      } catch (popupError) {
-        // User cancelled
-        if (popupError.code === 'auth/popup-closed-by-user' || 
-            popupError.code === 'auth/cancelled-popup-request') {
-          return { success: false, cancelled: true }
-        }
-
-        // Popup blocked - fallback to redirect
-        if (popupError.code === 'auth/popup-blocked') {
-          console.warn('[Auth] Popup blocked, falling back to redirect')
-          return this.loginWithGoogle(true)
-        }
-
-        throw popupError
       }
     } catch (error) {
       console.error('[Auth] Google login error:', error.code)
-      
       if (error.code === 'auth/popup-closed-by-user') {
         return { success: false, cancelled: true }
       }
-
-      return {
-        success: false,
-        error: { code: error.code, message: getErrorMessage(error.code) }
-      }
+      return { success: false, error: { code: error.code, message: getErrorMessage(error.code) } }
+    } finally {
+      _googleLoginInProgress = false
     }
   },
 
-  // ── Sign Out ──
   async logout() {
     try {
       await handleSignOut('user_action')
       return { success: true, message: 'Signed out successfully' }
     } catch (error) {
-      console.error('[Auth] Logout error:', error)
       return { success: false, error: { message: 'Failed to sign out' } }
     }
   },
 
-  // ── Password Reset ──
   async resetPassword(email) {
     try {
       await sendPasswordResetEmail(auth, email, {
@@ -545,59 +518,49 @@ export const AuthService = {
       })
       return { success: true, message: 'Password reset email sent.' }
     } catch (error) {
-      return {
-        success: false,
-        error: { code: error.code, message: getErrorMessage(error.code) }
-      }
+      return { success: false, error: { code: error.code, message: getErrorMessage(error.code) } }
     }
   },
 
-  // ── Resend Verification ──
   async resendVerificationEmail() {
     try {
       const user = auth.currentUser
       if (!user) return { success: false, error: { message: 'No user signed in' } }
-
       await sendEmailVerification(user, {
         url: `${window.location.origin}/login?email=${encodeURIComponent(user.email)}`
       })
       return { success: true, message: 'Verification email sent!' }
     } catch (error) {
-      return {
-        success: false,
-        error: { message: 'Failed to send verification email. Please try again.' }
-      }
+      return { success: false, error: { message: 'Failed to send verification email.' } }
     }
   },
 
-  // ── State Accessors ──
-  getCurrentUser()    { return _currentUser },
-  getFirebaseUser()   { return auth.currentUser },
-  getToken()          { return _currentToken },
-  isAuthenticated()   { return !!auth.currentUser },
-  isInitialized()     { return _initialized },
-  isSynced()          { return _currentUser?._synced === true },
+  getCurrentUser()   { return _currentUser },
+  getFirebaseUser()  { return auth.currentUser },
+  getToken()         { return _currentToken },
+  isAuthenticated()  { return !!_currentUser && !!_currentToken },
+  isInitialized()    { return _initialized },
+  isSynced()         { return _currentUser?._synced === true },
 
-  // ── Token Access (for api.js) ──
   async getIdToken(forceRefresh = false) {
     if (!auth.currentUser) return null
     return refreshToken(forceRefresh)
   },
 
-  // ── State Subscription ──
   onAuthStateChange(callback) {
     _listeners.add(callback)
 
-    // Immediately fire with current state
-    if (_initialized) {
-      try { callback({ user: _currentUser, token: _currentToken }) } catch {}
+    if (_initialized || _currentUser) {
+      try { 
+        callback({ user: _currentUser, token: _currentToken }) 
+      } catch (e) {
+        console.error('[AuthService] Listener callback error:', e)
+      }
     }
 
-    // Return unsubscribe function
     return () => _listeners.delete(callback)
   },
 
-  // ── Manual Sync ──
   async forceSync() {
     if (!_currentToken) return { success: false, error: 'No token' }
     const token = await refreshToken(true)
@@ -606,13 +569,8 @@ export const AuthService = {
     return { success: !!user, user }
   },
 
-  // ── Cache Management ──
-  clearCache() {
-    storage.clear()
-    _lastSyncTime = 0
-  },
+  clearCache() { storage.clear(); _lastSyncTime = 0 },
 
-  // ── Debug (development only) ──
   debug() {
     return {
       initialized: _initialized,
@@ -622,42 +580,33 @@ export const AuthService = {
       synced: _currentUser?._synced,
       lastSync: _lastSyncTime,
       listeners: _listeners.size,
+      googleLoginActive: _googleLoginInProgress,
+      authStateVersion: _authStateVersion,
       persistence: storage.get(STORAGE_KEYS.PREFERENCE, false)
     }
   }
 }
 
-// ─── Helper Functions ────────────────────────────────────────────────
+//  Helpers 
 function getErrorMessage(code) {
   return ERROR_MESSAGES[code] || 'An error occurred. Please try again.'
 }
 
 function detectRedirectRequired() {
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   const isIframe = window !== window.parent
-  
   let hasStorageIssues = false
-  try {
-    sessionStorage.setItem('__test', '1')
-    sessionStorage.removeItem('__test')
-  } catch {
-    hasStorageIssues = true
-  }
-  
-  return isMobile || isIframe || hasStorageIssues
+  try { sessionStorage.setItem('__test', '1'); sessionStorage.removeItem('__test') }
+  catch { hasStorageIssues = true }
+  return isIframe || hasStorageIssues
 }
 
-// ─── Cleanup on Page Unload ──────────────────────────────────────────
+//  Cleanup 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
     stopTokenRefreshTimer()
     stopBackgroundSync()
   })
-
-  // Development debug tools
-  if (import.meta.env.DEV) {
-    window.__auth = AuthService
-  }
+  if (import.meta.env.DEV) window.__auth = AuthService
 }
 
 export { auth }

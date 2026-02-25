@@ -1,15 +1,12 @@
-//frontend/src/public-site/layout/PublicLayout.jsx
-
+// frontend/src/public-site/layout/PublicLayout.jsx
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 
 export default function PublicLayout({ children }) {
   return (
-    <div className="min-h-screen bg-black overflow-x-hidden">
+    <div className="min-h-[100dvh] bg-black overflow-x-hidden">
       <Navbar />
-      <main className="overflow-x-hidden">
-        {children}
-      </main>
+      <main>{children}</main>
       <Footer />
     </div>
   );

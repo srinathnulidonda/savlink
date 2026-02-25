@@ -1,437 +1,269 @@
-// frontend/src/components/home/Features.jsx
-import { useRef, useState } from 'react';
-import { motion, useInView, useMotionValue, useTransform } from 'framer-motion';
+// frontend/src/public-site/components/Features.jsx
+import { useRef } from 'react';
+import { motion, useInView } from 'framer-motion';
 
+/* ── Feature Data with inline icons (same style as Platforms Bar) ── */
+const FEATURES = [
+  {
+    id: 'save',
+    title: 'Save in one click',
+    desc: 'Capture any link from your browser, phone, or just paste a URL. Titles, favicons, and metadata are grabbed automatically.',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        <rect x="4" y="4" width="16" height="16" rx="3" strokeLinecap="round" />
+      </svg>
+    ),
+    span: 'col-span-full lg:col-span-4',
+    featured: true,
+  },
+  {
+    id: 'organize',
+    title: 'Smart collections',
+    desc: 'Auto-categorize links into folders. Add custom tags, notes, and color-coded labels.',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+        <path strokeLinecap="round" d="M9 13h6m-3-3v6" />
+      </svg>
+    ),
+    span: 'col-span-full xs:col-span-1 lg:col-span-2',
+  },
+  {
+    id: 'search',
+    title: 'Instant search',
+    desc: 'Full-text search across all links, notes, and tags in under 50ms.',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="11" cy="11" r="7" />
+        <path strokeLinecap="round" d="M16.5 16.5L20 20" />
+      </svg>
+    ),
+    span: 'col-span-full xs:col-span-1 lg:col-span-2',
+  },
+  {
+    id: 'privacy',
+    title: 'Private & secure',
+    desc: 'End-to-end encryption. No tracking, no ads, no data selling.',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l8 4v5c0 5.25-3.5 9.74-8 11-4.5-1.26-8-5.75-8-11V7l8-4z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" />
+      </svg>
+    ),
+    span: 'col-span-full xs:col-span-1 lg:col-span-2',
+  },
+  {
+    id: 'shorten',
+    title: 'Short links',
+    desc: 'Generate branded short URLs with built-in click analytics.',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" d="M9 17H7a5 5 0 010-10h2m6 0h2a5 5 0 010 10h-2" />
+        <path strokeLinecap="round" d="M8 12h8" />
+      </svg>
+    ),
+    span: 'col-span-full xs:col-span-1 lg:col-span-2',
+  },
+  {
+    id: 'sync',
+    title: 'Sync everywhere',
+    desc: 'Real-time sync keeps your library perfectly in sync across desktop, tablet, and phone.',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 12a8 8 0 0114.3-4.8L20 5v4h-4" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20 12a8 8 0 01-14.3 4.8L4 19v-4h4" />
+      </svg>
+    ),
+    span: 'col-span-full lg:col-span-4',
+    featured: true,
+  },
+];
+
+const PLATFORMS = [
+  {
+    name: 'Chrome',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="4" />
+        <path d="M21.17 8H12" />
+        <path d="M6.5 3.5L12 12" />
+        <path d="M6.5 20.5L12 12" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Mobile',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="6" y="2" width="12" height="20" rx="3" />
+        <path strokeLinecap="round" d="M10 18h4" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Web App',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <rect x="2" y="4" width="20" height="14" rx="2" />
+        <path strokeLinecap="round" d="M8 21h8M12 18v3" />
+      </svg>
+    ),
+  },
+  {
+    name: 'API',
+    icon: (
+      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 3l4 4-4 4M8 13l-4 4 4 4" />
+        <path strokeLinecap="round" d="M14 4l-4 16" />
+      </svg>
+    ),
+  },
+];
+
+const STATS = [
+  { value: '50M+', label: 'Links saved' },
+  { value: '99.99%', label: 'Uptime' },
+  { value: '<50ms', label: 'Search' },
+  { value: '4.9★', label: 'Rating' },
+];
+
+/* ── Feature Card ── */
+function FeatureCard({ feature, delay, inView }) {
+  const { title, desc, icon, span, featured } = feature;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.4, delay, ease: [0.25, 0.1, 0.25, 1] }}
+      className={`group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04] ${span}`}
+    >
+      <div className={featured ? 'flex flex-col sm:flex-row sm:items-start sm:gap-5' : ''}>
+        {/* Icon container - matching Platforms Bar style */}
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-gray-400 transition-colors group-hover:border-white/[0.12] group-hover:text-white">
+          {icon}
+        </div>
+
+        <div className={featured ? 'mt-4 sm:mt-0 flex-1' : ''}>
+          <h3 className={`font-semibold text-white ${featured ? 'text-[16px] sm:text-[17px]' : 'text-[15px] mt-4'}`}>
+            {title}
+          </h3>
+          <p className={`mt-2 leading-relaxed text-gray-400 ${featured ? 'text-[13px] sm:text-[14px] max-w-lg' : 'text-[13px]'}`}>
+            {desc}
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Platforms Bar ── */
+function PlatformsBar({ inView }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.4, delay: 0.5 }}
+      className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]"
+    >
+      <div className="flex flex-col xs:flex-row items-start xs:items-center justify-between gap-4">
+        <div>
+          <h3 className="text-[15px] font-semibold text-white">Available everywhere</h3>
+          <p className="mt-1 text-[12px] sm:text-[13px] text-gray-400">
+            Browser, mobile, web, and API access.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {PLATFORMS.map((p) => (
+            <div
+              key={p.name}
+              className="group/p relative flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.06] hover:text-white"
+            >
+              {p.icon}
+              <span className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2.5 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity group-hover/p:opacity-100">
+                {p.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Stats Bar ── */
+function StatsBar({ inView }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.4, delay: 0.55 }}
+      className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04]"
+    >
+      <div className="grid grid-cols-2 xs:grid-cols-4 gap-6">
+        {STATS.map((s, i) => (
+          <motion.div
+            key={s.label}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={inView ? { opacity: 1, scale: 1 } : {}}
+            transition={{ duration: 0.3, delay: 0.6 + i * 0.05 }}
+            className="text-center"
+          >
+            <div className="text-xl sm:text-2xl font-bold text-white">{s.value}</div>
+            <div className="mt-1 text-[11px] sm:text-[12px] text-gray-500">{s.label}</div>
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Main Features Section ── */
 export default function Features() {
-    const ref = useRef(null);
-    const isInView = useInView(ref, { once: true, amount: 0.1 });
-    const [hoveredIndex, setHoveredIndex] = useState(null);
-    const mouseX = useMotionValue(0);
-    const mouseY = useMotionValue(0);
+  const ref = useRef(null);
+  const inView = useInView(ref, { once: true, amount: 0.1 });
 
-    // Your specific features with enhanced design
-    const features = [
-        {
-            title: 'Instant Save',
-            description: 'Save any link with a single click. Browser extension, mobile app.',
-            icon: (
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                </svg>
-            ),
-            gradient: 'from-amber-600 via-orange-600 to-red-600',
-            shadowColor: 'shadow-orange-500/20',
-            badge: 'INSTANT',
-            badgeColor: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-        },
-        {
-            title: 'Smart Organization',
-            description: 'Auto-categorization, custom tags, and folders that adapt to your workflow.',
-            icon: (
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-                </svg>
-            ),
-            gradient: 'from-blue-600 via-indigo-600 to-purple-600',
-            shadowColor: 'shadow-indigo-500/20',
-            badge: 'SMART',
-            badgeColor: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
-        },
-        {
-            title: 'Lightning Search',
-            description: 'Find anything instantly. Full-text search across titles, descriptions, and content.',
-            icon: (
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                </svg>
-            ),
-            gradient: 'from-emerald-600 via-green-600 to-teal-600',
-            shadowColor: 'shadow-emerald-500/20',
-            badge: 'FAST',
-            badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-        },
-        {
-            title: 'Private & Secure',
-            description: 'Your data encrypted and private. No tracking, no ads, no compromises.',
-            icon: (
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                </svg>
-            ),
-            gradient: 'from-violet-600 via-purple-600 to-pink-600',
-            shadowColor: 'shadow-purple-500/20',
-            badge: 'SECURE',
-            badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-        },
-        {
-            title: 'Clean Short Links',
-            description: 'Create branded short links when you need them. Full analytics included.',
-            icon: (
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                </svg>
-            ),
-            gradient: 'from-cyan-600 via-blue-600 to-indigo-600',
-            shadowColor: 'shadow-cyan-500/20',
-            badge: 'BRANDED',
-            badgeColor: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-        },
-        {
-            title: 'Everywhere Sync',
-            description: 'Access your links on any device. Real-time sync across all platforms.',
-            icon: (
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-            ),
-            gradient: 'from-rose-600 via-pink-600 to-fuchsia-600',
-            shadowColor: 'shadow-pink-500/20',
-            badge: 'SYNCED',
-            badgeColor: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-        },
-    ];
+  return (
+    <section id="features" ref={ref} className="relative bg-black py-20 sm:py-28 lg:py-32">
+      {/* Top border */}
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
 
-    // Additional features for bento grid
-    const additionalFeatures = [
-        {
-            title: 'Website',
-            description: 'Access from any browser',
-            icon: '🌐',
-            size: 'medium',
-        },
-        {
-            title: 'Web App',
-            description: 'Progressive web app with offline support',
-            icon: '📱',
-            size: 'medium',
-        },
-        {
-            title: 'Import & Export',
-            description: 'Bulk import from any bookmark manager',
-            icon: '📥',
-            size: 'small',
-        },
-        {
-            title: 'API Access',
-            description: 'RESTful API for developers',
-            icon: '🔧',
-            size: 'small',
-        },
-        {
-            title: 'Analytics Dashboard',
-            description: 'Track your reading habits and link performance',
-            icon: '📊',
-            size: 'large',
-            highlight: true,
-        },
-        {
-            title: 'Share Collections',
-            description: 'Public or private sharing',
-            icon: '🔗',
-            size: 'small',
-        },
-        {
-            title: 'Dark Mode',
-            description: 'Easy on your eyes',
-            icon: '🌙',
-            size: 'small',
-        },
-    ];
-
-    const handleMouseMove = (e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        mouseX.set(e.clientX - rect.left);
-        mouseY.set(e.clientY - rect.top);
-    };
-
-    return (
-        <section
-            id="features"
-            ref={ref}
-            className="relative bg-black py-12 sm:py-20 lg:py-32 overflow-hidden"
+      <div className="relative mx-auto max-w-6xl px-5 sm:px-6 lg:px-8">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={inView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.5 }}
+          className="mx-auto max-w-2xl text-center"
         >
-            {/* Premium Background Effects */}
-            <div className="absolute inset-0 overflow-hidden">
-                <div className="absolute inset-0 bg-grid-pattern opacity-[0.02]" />
+          <h2 className="text-[clamp(1.75rem,5vw,3rem)] font-bold leading-tight tracking-tight text-white">
+            Everything you need
+          </h2>
+          <p className="mt-4 text-[clamp(1rem,2vw,1.125rem)] text-gray-400">
+            Simple tools for saving and organizing your digital life.
+          </p>
+        </motion.div>
 
-                {/* Animated gradient orbs - smaller on mobile */}
-                <motion.div
-                    animate={{
-                        x: [0, 100, 0],
-                        y: [0, -100, 0],
-                    }}
-                    transition={{
-                        duration: 20,
-                        repeat: Infinity,
-                        ease: "linear"
-                    }}
-                    className="absolute left-1/4 top-1/4 h-[200px] sm:h-[350px] lg:h-[500px] w-[200px] sm:w-[350px] lg:w-[500px] rounded-full bg-primary/5 blur-[80px] sm:blur-[120px] lg:blur-[150px]"
-                />
-                <motion.div
-                    animate={{
-                        x: [0, -100, 0],
-                        y: [0, 100, 0],
-                    }}
-                    transition={{
-                        duration: 25,
-                        repeat: Infinity,
-                        ease: "linear"
-                    }}
-                    className="absolute right-1/4 bottom-1/4 h-[200px] sm:h-[350px] lg:h-[500px] w-[200px] sm:w-[350px] lg:w-[500px] rounded-full bg-purple-600/5 blur-[80px] sm:blur-[120px] lg:blur-[150px]"
-                />
+        {/* Bento Grid */}
+        <div className="mt-12 sm:mt-16 grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {FEATURES.map((f, i) => (
+            <FeatureCard
+              key={f.id}
+              feature={f}
+              delay={0.08 + i * 0.05}
+              inView={inView}
+            />
+          ))}
+        </div>
 
-                {/* Top gradient line */}
-                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
-            </div>
-
-            <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                {/* Premium Section Header */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={isInView ? { opacity: 1, y: 0 } : {}}
-                    transition={{ duration: 0.6 }}
-                    className="mx-auto max-w-3xl text-center"
-                >
-                    {/* Animated badge - smaller on mobile */}
-                    <motion.div
-                        initial={{ scale: 0 }}
-                        animate={isInView ? { scale: 1 } : {}}
-                        transition={{ type: "spring", duration: 0.6 }}
-                        className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-primary/20 bg-gradient-to-r from-primary/5 to-primary/10 backdrop-blur-md px-2 sm:px-3 lg:px-4 py-0.5 sm:py-1 lg:py-1.5 mb-4 sm:mb-6 lg:mb-8"
-                    >
-                        <span className="relative flex h-1.5 sm:h-2 w-1.5 sm:w-2">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                            <span className="relative inline-flex h-full w-full rounded-full bg-primary" />
-                        </span>
-                        <span className="text-[10px] sm:text-xs font-semibold text-primary uppercase tracking-wider">Features</span>
-                    </motion.div>
-
-                    <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold tracking-tight text-white">
-                        Everything you need
-                        <span className="block mt-1 sm:mt-2">
-                            <span className="relative inline-block">
-                                <motion.span
-                                    className="relative z-10 bg-gradient-to-r from-primary via-primary-light to-purple-500 bg-clip-text text-transparent"
-                                    animate={{
-                                        backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
-                                    }}
-                                    transition={{
-                                        duration: 5,
-                                        repeat: Infinity,
-                                        ease: "linear"
-                                    }}
-                                    style={{
-                                        backgroundSize: "200% 200%",
-                                    }}
-                                >
-                                    nothing you don't
-                                </motion.span>
-                                <motion.div
-                                    className="absolute -inset-2 rounded-lg bg-gradient-to-r from-primary/10 via-primary-light/10 to-purple-500/10 blur-xl sm:blur-2xl"
-                                    animate={{
-                                        opacity: [0.3, 0.6, 0.3],
-                                    }}
-                                    transition={{
-                                        duration: 3,
-                                        repeat: Infinity,
-                                    }}
-                                />
-                            </span>
-                        </span>
-                    </h2>
-                    <p className="mt-3 sm:mt-4 lg:mt-6 text-sm sm:text-base lg:text-lg text-gray-400 leading-relaxed max-w-2xl mx-auto">
-                        Powerful features designed for professionals who value simplicity and efficiency.
-                    </p>
-                </motion.div>
-
-                {/* Main Features Grid - Updated for smaller mobile text */}
-                <motion.div
-                    initial="hidden"
-                    animate={isInView ? "visible" : "hidden"}
-                    className="mt-10 sm:mt-14 lg:mt-20"
-                    onMouseMove={handleMouseMove}
-                >
-                    <div className="grid gap-3 sm:gap-6 lg:gap-8 grid-cols-2 lg:grid-cols-3">
-                        {features.map((feature, index) => (
-                            <motion.div
-                                key={feature.title}
-                                initial={{ opacity: 0, y: 30 }}
-                                animate={isInView ? { opacity: 1, y: 0 } : {}}
-                                transition={{
-                                    duration: 0.5,
-                                    delay: index * 0.1,
-                                    ease: [0.21, 0.47, 0.32, 0.98]
-                                }}
-                                whileHover={{ y: -8, transition: { duration: 0.3 } }}
-                                onHoverStart={() => setHoveredIndex(index)}
-                                onHoverEnd={() => setHoveredIndex(null)}
-                                className="group relative"
-                            >
-                                {/* Glow effect */}
-                                <div
-                                    className={`absolute inset-0 rounded-xl sm:rounded-2xl lg:rounded-3xl bg-gradient-to-r ${feature.gradient} opacity-0 blur-xl sm:blur-2xl transition-opacity duration-500 group-hover:opacity-20`}
-                                />
-
-                                {/* Animated border */}
-                                <div className="absolute -inset-[1px] rounded-xl sm:rounded-2xl lg:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                                    <div className={`absolute inset-0 rounded-xl sm:rounded-2xl lg:rounded-3xl bg-gradient-to-r ${feature.gradient} opacity-30 blur-sm`} />
-                                    <div className="absolute inset-0 rounded-xl sm:rounded-2xl lg:rounded-3xl bg-gradient-to-r from-transparent via-gray-800 to-transparent" />
-                                </div>
-
-                                {/* Card - Adjusted padding and sizes for mobile */}
-                                <div className="relative h-full rounded-xl sm:rounded-2xl lg:rounded-3xl border border-gray-900 bg-gray-950/80 backdrop-blur-xl p-3 sm:p-5 lg:p-8 overflow-hidden transition-all duration-300 group-hover:border-gray-800 group-hover:bg-gray-950/90">
-
-                                    {/* Badge - Hidden on mobile for space */}
-                                    <motion.div
-                                        initial={{ opacity: 0, x: 20 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ delay: 0.5 + index * 0.1 }}
-                                        className="absolute top-2 right-2 sm:top-4 sm:right-4 lg:top-6 lg:right-6 hidden sm:block"
-                                    >
-                                        <span className={`inline-flex items-center rounded-full px-1.5 sm:px-2 py-0.5 text-[10px] font-bold tracking-wider ${feature.badgeColor} border backdrop-blur-sm`}>
-                                            {feature.badge}
-                                        </span>
-                                    </motion.div>
-
-                                    {/* Icon - Smaller on mobile */}
-                                    <div className="relative inline-block">
-                                        <div className={`absolute inset-0 rounded-lg sm:rounded-xl lg:rounded-2xl bg-gradient-to-br ${feature.gradient} opacity-20 blur-xl transition-all duration-300 group-hover:opacity-30`} />
-                                        <div className={`relative inline-flex rounded-lg sm:rounded-xl lg:rounded-2xl bg-gradient-to-br ${feature.gradient} p-2.5 sm:p-3 lg:p-4 shadow-xl sm:shadow-2xl`}>
-                                            <motion.div
-                                                animate={hoveredIndex === index ? { rotate: [0, -10, 10, -10, 0] } : {}}
-                                                transition={{ duration: 0.5 }}
-                                                className="text-white h-3.5 sm:h-4 lg:h-5 w-3.5 sm:w-4 lg:w-5"
-                                            >
-                                                {feature.icon}
-                                            </motion.div>
-                                        </div>
-                                    </div>
-
-                                    {/* Content - Adjusted for mobile */}
-                                    <div className="mt-3 sm:mt-5 lg:mt-6">
-                                        <h3 className="text-sm sm:text-base lg:text-xl font-bold text-white group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-gray-400 group-hover:bg-clip-text transition-all duration-300">
-                                            {feature.title}
-                                        </h3>
-                                        <p className="mt-1.5 sm:mt-2 lg:mt-3 text-[10px] sm:text-xs lg:text-sm text-gray-400 leading-relaxed line-clamp-3 sm:line-clamp-none">
-                                            {feature.description}
-                                        </p>
-                                    </div>
-
-                                    {/* Shimmer effect on hover - Desktop only */}
-                                    {hoveredIndex === index && (
-                                        <motion.div
-                                            className="absolute inset-0 -translate-x-full hidden sm:block"
-                                            animate={{ x: ['-100%', '200%'] }}
-                                            transition={{ duration: 1.5, ease: "easeInOut" }}
-                                            style={{
-                                                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent)',
-                                            }}
-                                        />
-                                    )}
-                                </div>
-                            </motion.div>
-                        ))}
-                    </div>
-                </motion.div>
-
-                {/* Bento Grid Section - Updated for mobile with smaller text */}
-                <motion.div
-                    initial={{ opacity: 0, y: 40 }}
-                    animate={isInView ? { opacity: 1, y: 0 } : {}}
-                    transition={{ duration: 0.6, delay: 0.4 }}
-                    className="mt-12 sm:mt-16 lg:mt-24"
-                >
-                    <div className="text-center mb-6 sm:mb-10 lg:mb-12">
-                        <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-white">Plus everything else you'd expect</h3>
-                        <p className="mt-1.5 sm:mt-2 lg:mt-3 text-xs sm:text-sm lg:text-base text-gray-400">Thoughtful features that enhance your workflow</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 sm:gap-3 lg:gap-4">
-                        {additionalFeatures.map((feature, index) => (
-                            <motion.div
-                                key={feature.title}
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={isInView ? { opacity: 1, scale: 1 } : {}}
-                                transition={{ duration: 0.5, delay: 0.6 + index * 0.05 }}
-                                whileHover={{ scale: 1.05, y: -5 }}
-                                className={`relative group ${feature.size === 'large' ? 'col-span-2 row-span-2' :
-                                    feature.size === 'medium' ? 'col-span-2 sm:col-span-2' : ''
-                                    }`}
-                            >
-                                <div className={`relative h-full min-h-[80px] sm:min-h-[100px] lg:min-h-[140px] rounded-lg sm:rounded-xl lg:rounded-2xl border ${feature.highlight ? 'border-primary/20 bg-gradient-to-br from-primary/5 to-transparent' : 'border-gray-900 bg-gray-950/50'
-                                    } backdrop-blur-sm p-3 sm:p-4 lg:p-6 overflow-hidden transition-all duration-300 hover:border-gray-800 hover:bg-gray-950/70`}>
-                                    <div className="text-xl sm:text-2xl lg:text-3xl mb-1.5 sm:mb-2 lg:mb-3">{feature.icon}</div>
-                                    <h4 className="text-[10px] sm:text-xs lg:text-sm font-semibold text-white">{feature.title}</h4>
-                                    <p className="mt-0.5 sm:mt-1 text-[10px] sm:text-[11px] lg:text-xs text-gray-400 line-clamp-2">{feature.description}</p>
-
-                                    {/* Hover gradient */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-primary/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                                </div>
-                            </motion.div>
-                        ))}
-                    </div>
-                </motion.div>
-
-                {/* Stats Section - Updated for mobile with smaller text */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={isInView ? { opacity: 1 } : {}}
-                    transition={{ duration: 0.6, delay: 0.8 }}
-                    className="mt-12 sm:mt-16 lg:mt-24"
-                >
-                    <div className="relative rounded-xl sm:rounded-2xl lg:rounded-3xl overflow-hidden">
-                        {/* Glass effect background */}
-                        <div className="absolute inset-0 bg-gradient-to-b from-gray-900/50 to-gray-950/50 backdrop-blur-xl" />
-
-                        {/* Animated gradient overlay */}
-                        <motion.div
-                            className="absolute inset-0 opacity-30"
-                            animate={{
-                                background: [
-                                    'linear-gradient(0deg, transparent, rgba(10,42,143,0.1))',
-                                    'linear-gradient(180deg, transparent, rgba(10,42,143,0.1))',
-                                    'linear-gradient(0deg, transparent, rgba(10,42,143,0.1))',
-                                ],
-                            }}
-                            transition={{
-                                duration: 8,
-                                repeat: Infinity,
-                                ease: "linear"
-                            }}
-                        />
-
-                        <div className="relative border border-gray-800 rounded-xl sm:rounded-2xl lg:rounded-3xl p-4 sm:p-6 lg:p-12">
-                            <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:gap-8 md:grid-cols-4">
-                                {[
-                                    { value: '50M+', label: 'Links Saved', trend: '↑ 23% this month' },
-                                    { value: '99.99%', label: 'Uptime SLA', trend: 'Enterprise ready' },
-                                    { value: '<50ms', label: 'Response Time', trend: 'Lightning fast' },
-                                    { value: '5.0★', label: 'User Rating', trend: '2k+ reviews' },
-                                ].map((stat, index) => (
-                                    <motion.div
-                                        key={stat.label}
-                                        initial={{ opacity: 0, y: 20 }}
-                                        animate={isInView ? { opacity: 1, y: 0 } : {}}
-                                        transition={{ duration: 0.5, delay: 0.9 + index * 0.1 }}
-                                        whileHover={{ scale: 1.05 }}
-                                        className="text-center group cursor-pointer"
-                                    >
-                                        <div className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-transparent bg-gradient-to-r from-white to-gray-400 bg-clip-text group-hover:from-primary group-hover:to-primary-light transition-all duration-300">
-                                            {stat.value}
-                                        </div>
-                                        <div className="mt-0.5 sm:mt-1 lg:mt-2 text-[10px] sm:text-xs lg:text-sm font-medium text-gray-300">
-                                            {stat.label}
-                                        </div>
-                                        <div className="mt-0.5 lg:mt-1 text-[10px] sm:text-[11px] lg:text-xs text-primary/70">
-                                            {stat.trend}
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </motion.div>
-            </div>
-        </section>
-    );
+        {/* Bottom Row */}
+        <div className="mt-3 sm:mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <PlatformsBar inView={inView} />
+          <StatsBar inView={inView} />
+        </div>
+      </div>
+    </section>
+  );
 }

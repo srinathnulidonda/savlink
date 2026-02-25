@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AuthService } from '../../../auth/services/auth.service'; // ✅ Updated import
+import { AuthService } from '../../../auth/services/auth.service';
 import { useNavigate } from 'react-router-dom';
 
 export default function UserProfile({ user, stats }) {
     const [showDropdown, setShowDropdown] = useState(false);
+    const [imgError, setImgError] = useState(false);
     const navigate = useNavigate();
 
     const handleLogout = async () => {
@@ -20,30 +21,39 @@ export default function UserProfile({ user, stats }) {
     };
 
     const getStatusColor = () => {
-        return user?._syncedWithBackend ? 'bg-green-500' : 'bg-yellow-500';
+        return user?._synced ? 'bg-green-500' : 'bg-yellow-500';
     };
+
+    // ── Resolve avatar URL from multiple possible sources ──
+    const getAvatarUrl = () => {
+        // User object may carry the URL under different keys
+        // depending on whether it came from Firebase, backend sync, or cache
+        return user?.avatar_url || user?.photoURL || user?.picture || null;
+    };
+
+    const avatarUrl = getAvatarUrl();
+    const showAvatar = avatarUrl && !imgError;
 
     return (
         <div className="border-b border-gray-900 p-3 lg:p-4 relative">
             <div className="flex items-center gap-3">
                 {/* Avatar */}
                 <div className="relative">
-                    {user?.avatar_url ? (
+                    {showAvatar ? (
                         <img
-                            src={user.avatar_url}
-                            alt={user.name}
+                            src={avatarUrl}
+                            alt={user?.name || 'User'}
                             className="h-9 lg:h-10 w-9 lg:w-10 rounded-lg object-cover"
+                            referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
+                            onError={() => setImgError(true)}
                         />
                     ) : (
                         <div className="h-9 lg:h-10 w-9 lg:w-10 rounded-lg bg-gradient-to-br from-primary to-primary-light flex items-center justify-center text-white text-sm font-semibold">
                             {getInitials(user?.name)}
                         </div>
                     )}
-                    <div className={`absolute -bottom-0.5 -right-0.5 h-2.5 lg:h-3 w-2.5 lg:w-3 rounded-full ${getStatusColor()} border-2 border-gray-950`}>
-                        {user?._syncPending && (
-                            <div className="absolute inset-0 rounded-full bg-yellow-500 animate-ping opacity-75"></div>
-                        )}
-                    </div>
+                    <div className={`absolute -bottom-0.5 -right-0.5 h-2.5 lg:h-3 w-2.5 lg:w-3 rounded-full ${getStatusColor()} border-2 border-gray-950`} />
                 </div>
 
                 {/* User Info */}
@@ -52,7 +62,7 @@ export default function UserProfile({ user, stats }) {
                         {user?.name || 'User'}
                     </div>
                     <div className="text-xs text-gray-500">
-                        {user?.email_verified ? 'Pro' : 'Free'} • {stats.all || 0} links
+                        {user?.email_verified ? 'Pro' : 'Free'} • {stats?.all || 0} links
                     </div>
                 </div>
 
@@ -84,10 +94,7 @@ export default function UserProfile({ user, stats }) {
                         >
                             <div className="p-2">
                                 <button
-                                    onClick={() => {
-                                        setShowDropdown(false);
-                                        navigate('/dashboard/settings');
-                                    }}
+                                    onClick={() => { setShowDropdown(false); navigate('/dashboard/settings'); }}
                                     className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-400 hover:bg-gray-900 hover:text-white rounded-md transition-all"
                                 >
                                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -98,10 +105,7 @@ export default function UserProfile({ user, stats }) {
                                 </button>
 
                                 <button
-                                    onClick={() => {
-                                        setShowDropdown(false);
-                                        navigate('/dashboard/profile');
-                                    }}
+                                    onClick={() => { setShowDropdown(false); navigate('/dashboard/profile'); }}
                                     className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-400 hover:bg-gray-900 hover:text-white rounded-md transition-all"
                                 >
                                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -112,10 +116,7 @@ export default function UserProfile({ user, stats }) {
 
                                 <div className="border-t border-gray-800 mt-2 pt-2">
                                     <button
-                                        onClick={() => {
-                                            setShowDropdown(false);
-                                            handleLogout();
-                                        }}
+                                        onClick={() => { setShowDropdown(false); handleLogout(); }}
                                         className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-md transition-all"
                                     >
                                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
