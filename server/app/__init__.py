@@ -36,8 +36,12 @@ def _init_extensions(app):
     migrate.init_app(app, db)
     db_manager.init_app(app)
 
+    # Debug: Check what CORS origins are being loaded
+    cors_origins = app.config.get('CORS_ORIGINS', [])
+    logger.info(f"CORS Origins configured: {cors_origins}")
+
     CORS(app,
-         origins=app.config.get('CORS_ORIGINS', []),
+         origins=cors_origins,
          supports_credentials=True,
          allow_headers=['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
          methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
