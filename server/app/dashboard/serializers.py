@@ -1,92 +1,83 @@
 # server/app/dashboard/serializers.py
-import os
-from datetime import datetime
-from typing import Dict, Any, List, Optional
-from app.models import Link
-from app.utils.url import extract_domain, extract_display_url, build_favicon_url
+from app.utils.url import extract_domain, get_short_link_url, build_favicon_url
 from app.utils.time import relative_time
 
 
-def _short_base() -> str:
-    api = os.environ.get('API_URL') or os.environ.get('RENDER_EXTERNAL_URL', '')
-    return f'{api}/r' if api else '/r'
+def serialize_link(link):
+    meta = link.metadata_ or {}
+    page = meta.get('page_metadata', {})
+    domain = page.get('domain') or extract_domain(link.original_url)
+    favicon = page.get('favicon') or build_favicon_url(link.original_url)
 
-
-def _iso(dt: Optional[datetime]) -> Optional[str]:
-    return dt.isoformat() if dt else None
-
-
-def _safe_bool(obj, attr, default=False):
-    try:
-        return bool(getattr(obj, attr, default))
-    except Exception:
-        return default
-
-
-def serialize_link(link: Link) -> Dict[str, Any]:
-    domain = extract_domain(link.original_url)
-    page_meta = (link.metadata_ or {}).get('page_metadata', {})
-    now = datetime.utcnow()
-
-    data = {
+    return {
         'id': link.id,
-        'title': link.title or extract_display_url(link.original_url),
         'original_url': link.original_url,
-        'display_url': extract_display_url(link.original_url),
+        'title': link.title or page.get('title') or domain,
+        'notes': link.notes,
+        'notes_preview': _preview(link.notes, 120),
+        'description': page.get('description'),
         'link_type': link.link_type,
+        'slug': link.slug,
+        'short_url': get_short_link_url(link.slug) if link.slug else None,
+        'domain': domain,
+        'favicon': favicon,
+        'favicons': page.get('favicons', []),
+        'image': page.get('image'),
+        'site_name': page.get('site_name'),
         'is_active': link.is_active,
+        'pinned': link.pinned,
+        'starred': link.starred,
+        'frequently_used': link.frequently_used,
+        'archived': link.archived_at is not None,
+        'archived_at': _iso(link.archived_at),
+        'expires_at': _iso(link.expires_at),
         'created_at': _iso(link.created_at),
         'updated_at': _iso(link.updated_at),
         'relative_time': relative_time(link.created_at),
-        'pinned': link.pinned,
-        'pinned_at': _iso(link.pinned_at),
-        'starred': _safe_bool(link, 'starred'),
-        'frequently_used': _safe_bool(link, 'frequently_used'),
-        'archived': link.archived_at is not None,
-        'archived_at': _iso(link.archived_at),
+        'click_count': link.click_count or 0,
         'folder_id': link.folder_id,
-        'folder': _folder_ref(link),
-        'tags': [{'id': t.id, 'name': t.name, 'color': t.color} for t in (link.tags or [])],
-        'notes': link.notes,
-        'has_notes': bool(link.notes),
-        'preview': {
-            'domain': domain,
-            'favicon': page_meta.get('favicon') or build_favicon_url(link.original_url),
-            'image': page_meta.get('image'),
-            'site_name': page_meta.get('site_name'),
-            'description': page_meta.get('description'),
-        },
+        'folder_name': link.folder.name if link.folder else None,
+        'tags': [t.name for t in (link.tags or [])],
+        'is_public': not bool(link.password_hash),
+        'password_protected': bool(link.password_hash),
+        'content_type': page.get('content_type'),
+        'reading_time': page.get('reading_time_minutes'),
+        'word_count': page.get('word_count'),
+        'author': page.get('author'),
+        'published_at': page.get('published_at'),
     }
 
-    if link.link_type == 'shortened':
-        base = _short_base()
-        meta = link.metadata_ or {}
-        click_limit = meta.get('click_limit')
-        data.update({
-            'slug': link.slug,
-            'short_url': f'{base}/{link.slug}' if link.slug else None,
-            'click_count': link.click_count or 0,
-            'expires_at': _iso(link.expires_at),
-            'is_expired': bool(link.expires_at and now > link.expires_at),
-            'is_password_protected': bool(getattr(link, 'password_hash', None)),
-        })
-        if click_limit:
-            clicks = link.click_count or 0
-            data['click_limit'] = click_limit
-            data['clicks_remaining'] = max(0, click_limit - clicks)
 
-    return data
+def serialize_link_minimal(link):
+    meta = link.metadata_ or {}
+    page = meta.get('page_metadata', {})
+    domain = page.get('domain') or extract_domain(link.original_url)
+
+    return {
+        'id': link.id,
+        'original_url': link.original_url,
+        'title': link.title or page.get('title') or domain,
+        'domain': domain,
+        'favicon': page.get('favicon') or build_favicon_url(link.original_url),
+        'link_type': link.link_type,
+        'slug': link.slug,
+        'short_url': get_short_link_url(link.slug) if link.slug else None,
+        'pinned': link.pinned,
+        'starred': link.starred,
+        'click_count': link.click_count or 0,
+        'created_at': _iso(link.created_at),
+        'relative_time': relative_time(link.created_at),
+        'tags': [t.name for t in (link.tags or [])],
+    }
 
 
-def serialize_links(links: List[Link]) -> List[Dict[str, Any]]:
-    return [serialize_link(l) for l in links]
+def _iso(dt):
+    return dt.isoformat() if dt else None
 
 
-def _folder_ref(link: Link) -> Optional[Dict[str, Any]]:
-    if not link.folder_id:
+def _preview(text, max_len=120):
+    if not text:
         return None
-    try:
-        f = link.folder
-        return {'id': f.id, 'name': f.name, 'color': f.color, 'icon': getattr(f, 'icon', None)} if f else None
-    except Exception:
-        return None
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rsplit(' ', 1)[0] + '…'

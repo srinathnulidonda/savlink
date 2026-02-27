@@ -2,9 +2,10 @@
 import logging
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, asc, or_
 from app.extensions import db
 from app.models import Folder, Link
+from app.dashboard.serializers import serialize_link
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,118 @@ def create_folder(user_id: str, data: Dict[str, Any]) -> Tuple[Optional[Folder],
 
 def get_user_folders(user_id: str) -> List[Folder]:
     return Folder.query.filter_by(user_id=user_id, soft_deleted=False).order_by(Folder.position, Folder.created_at).all()
+
+
+def get_folder_detail(user_id: str, folder_id: int) -> Optional[Dict[str, Any]]:
+    folder = Folder.query.filter_by(id=folder_id, user_id=user_id, soft_deleted=False).first()
+    if not folder:
+        return None
+
+    children = Folder.query.filter_by(
+        parent_id=folder_id, user_id=user_id, soft_deleted=False
+    ).order_by(Folder.position, Folder.created_at).all()
+
+    parent = None
+    if folder.parent_id:
+        p = Folder.query.filter_by(id=folder.parent_id, user_id=user_id, soft_deleted=False).first()
+        if p:
+            parent = {'id': p.id, 'name': p.name, 'icon': p.icon, 'color': p.color}
+
+    link_count = Link.query.filter_by(
+        folder_id=folder_id, user_id=user_id, soft_deleted=False, archived_at=None
+    ).count()
+    archived_count = Link.query.filter_by(
+        folder_id=folder_id, user_id=user_id, soft_deleted=False
+    ).filter(Link.archived_at.isnot(None)).count()
+    total_clicks = db.session.query(func.coalesce(func.sum(Link.click_count), 0)).filter(
+        Link.folder_id == folder_id, Link.user_id == user_id, Link.soft_deleted == False
+    ).scalar()
+
+    return {
+        'folder': serialize_folder(folder, counts=False),
+        'children': [serialize_folder(c, counts=True) for c in children],
+        'parent': parent,
+        'stats': {
+            'link_count': link_count,
+            'archived_count': archived_count,
+            'total_clicks': int(total_clicks or 0),
+            'subfolder_count': len(children),
+        },
+        'breadcrumb': _build_breadcrumb(user_id, folder),
+    }
+
+
+def _build_breadcrumb(user_id: str, folder: Folder) -> List[Dict[str, Any]]:
+    crumbs = []
+    current = folder
+    visited = set()
+    while current and current.id not in visited:
+        visited.add(current.id)
+        crumbs.insert(0, {'id': current.id, 'name': current.name, 'icon': current.icon})
+        if current.parent_id:
+            current = Folder.query.filter_by(
+                id=current.parent_id, user_id=user_id, soft_deleted=False
+            ).first()
+        else:
+            break
+    return crumbs
+
+
+def get_folder_links(user_id: str, folder_id: int, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    folder = Folder.query.filter_by(id=folder_id, user_id=user_id, soft_deleted=False).first()
+    if not folder:
+        return None
+
+    query = Link.query.filter(
+        Link.user_id == user_id,
+        Link.folder_id == folder_id,
+        Link.soft_deleted == False,
+        Link.archived_at.is_(None),
+    )
+
+    search = params.get('search', '').strip()
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            Link.title.ilike(pattern),
+            Link.original_url.ilike(pattern),
+            Link.notes.ilike(pattern),
+        ))
+
+    sort_field = params.get('sort', 'created_at')
+    sort_order = params.get('order', 'desc')
+    sort_col = {
+        'created_at': Link.created_at,
+        'updated_at': Link.updated_at,
+        'title': Link.title,
+        'click_count': Link.click_count,
+    }.get(sort_field, Link.created_at)
+
+    order_fn = desc if sort_order == 'desc' else asc
+    query = query.order_by(desc(Link.pinned), order_fn(sort_col))
+
+    limit = params.get('limit', 30)
+    offset = 0
+    cursor = params.get('cursor')
+    if cursor:
+        try:
+            offset = max(0, int(cursor))
+        except (ValueError, TypeError):
+            pass
+
+    items = query.offset(offset).limit(limit + 1).all()
+    has_more = len(items) > limit
+    if has_more:
+        items = items[:limit]
+
+    return {
+        'links': [serialize_link(l) for l in items],
+        'meta': {
+            'total': query.count() if not cursor else None,
+            'has_more': has_more,
+            'next_cursor': str(offset + limit) if has_more else None,
+        },
+    }
 
 
 def update_folder(user_id: str, folder_id: int, data: Dict[str, Any]) -> Optional[Folder]:

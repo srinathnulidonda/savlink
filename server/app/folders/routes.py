@@ -1,5 +1,4 @@
 # server/app/folders/routes.py
-
 from flask import request
 from app.folders import folders_bp
 from app.auth.middleware import require_auth
@@ -28,6 +27,35 @@ def list_all():
         return success_response({'folders': service.get_folder_tree(uid())})
     folders = service.get_user_folders(uid())
     return success_response({'folders': [service.serialize_folder(f, counts=True) for f in folders]})
+
+
+@folders_bp.route('/<int:folder_id>', methods=['GET'])
+@require_auth
+def get_detail(folder_id):
+    data = service.get_folder_detail(uid(), folder_id)
+    if not data:
+        return error_response('Folder not found', 404)
+    return success_response(data)
+
+
+@folders_bp.route('/<int:folder_id>/links', methods=['GET'])
+@require_auth
+def get_folder_links(folder_id):
+    try:
+        limit = min(max(1, int(request.args.get('limit', 30))), 100)
+    except ValueError:
+        limit = 30
+    params = {
+        'search': request.args.get('search', ''),
+        'sort': request.args.get('sort', 'created_at'),
+        'order': request.args.get('order', 'desc'),
+        'cursor': request.args.get('cursor'),
+        'limit': limit,
+    }
+    result = service.get_folder_links(uid(), folder_id, params)
+    if result is None:
+        return error_response('Folder not found', 404)
+    return success_response(result)
 
 
 @folders_bp.route('/<int:folder_id>', methods=['PUT'])

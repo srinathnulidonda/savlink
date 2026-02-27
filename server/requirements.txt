@@ -13,3 +13,4 @@ python-dotenv
 sib-api-v3-sdk
 fastapi
 uvicorn
+python-dateutil
