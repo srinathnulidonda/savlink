@@ -25,7 +25,7 @@ def _int(val, default, lo=1, hi=100):
         return default
 
 
-# ── Views ────────────────────────────────────────────────────────────
+#  Views 
 
 @dashboard_bp.route('/links', methods=['GET'])
 @require_auth
@@ -104,7 +104,7 @@ def overview():
         return error_response('Failed to load overview', 500)
 
 
-# ── Existing ─────────────────────────────────────────────────────────
+#  Existing 
 
 @dashboard_bp.route('/stats', methods=['GET'])
 @require_auth
@@ -149,7 +149,7 @@ def quick_access():
         return error_response('Failed to load quick access', 500)
 
 
-# ── helpers ──────────────────────────────────────────────────────────
+#  helpers 
 
 def _build_filters() -> dict:
     filters = {}

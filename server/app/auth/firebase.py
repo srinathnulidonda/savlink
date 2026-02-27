@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 _firebase_app = None
 
-# ─── Performance Metrics ──────────────────────────────────────────────
+#  Performance Metrics 
 _metrics = {
     'cache_hits': 0,
     'cache_misses': 0,
@@ -69,7 +69,7 @@ def verify_id_token(token: str) -> Optional[Dict[str, Any]]:
         logger.warning("Token validation failed: too short or empty")
         return None
     
-    # ── Step 1: Check Redis cache ──
+    #  Step 1: Check Redis cache 
     cached = get_cached_token_verification(token)
     if cached:
         _metrics['cache_hits'] += 1
@@ -79,7 +79,7 @@ def verify_id_token(token: str) -> Optional[Dict[str, Any]]:
     _metrics['cache_misses'] += 1
     logger.debug("Token cache MISS - verifying with Firebase")
     
-    # ── Step 2: Verify with Firebase ──
+    #  Step 2: Verify with Firebase 
     try:
         initialize_firebase()
         
@@ -95,7 +95,7 @@ def verify_id_token(token: str) -> Optional[Dict[str, Any]]:
         if duration > 1000:
             logger.warning(f"⚠️  Slow Firebase verification: {duration:.0f}ms")
         
-        # ── Step 3: Cache the result ──
+        #  Step 3: Cache the result 
         cache_token_verification(token, decoded_token)
         
         return decoded_token

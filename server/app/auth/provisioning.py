@@ -40,7 +40,7 @@ def provision_user_cached(user_info: Dict[str, Any]) -> Optional[User]:
         email = f"{uid}@savlink.local"
     
     try:
-        # ── Try to get from DB and provision ──
+        #  Try to get from DB and provision 
         user = _provision_or_update(uid, email, user_info)
         
         if user:
@@ -68,7 +68,7 @@ def _provision_or_update(uid: str, email: str, user_info: Dict[str, Any]) -> Use
     user = User.query.filter_by(id=uid).first()
     
     if user:
-        # ── Existing user - minimal update ──
+        #  Existing user - minimal update 
         changed = False
         
         # Update name/avatar only if user doesn't have them
@@ -104,7 +104,7 @@ def _provision_or_update(uid: str, email: str, user_info: Dict[str, Any]) -> Use
         
         return user
     
-    # ── Check by email (account merging) ──
+    #  Check by email (account merging) 
     existing_email_user = User.query.filter_by(email=email).first()
     
     if existing_email_user:
@@ -130,7 +130,7 @@ def _provision_or_update(uid: str, email: str, user_info: Dict[str, Any]) -> Use
                 return user
             raise
     
-    # ── Create new user ──
+    #  Create new user 
     user = User(
         id=uid,
         email=email,

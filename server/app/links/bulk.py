@@ -53,7 +53,7 @@ def execute_bulk(user_id: str, action: str, link_ids: List[int], params: Dict[st
     }
 
 
-# ── handlers ─────────────────────────────────────────────────────────
+#  handlers 
 
 def _bulk_archive(links, now, user_id, params):
     count = 0

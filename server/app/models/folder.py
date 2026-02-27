@@ -10,6 +10,7 @@ class Folder(db.Model):
     user_id = db.Column(db.Text, db.ForeignKey('users.id'), nullable=False, index=True)
     parent_id = db.Column(db.Integer, db.ForeignKey('folders.id'), nullable=True, index=True)
     name = db.Column(db.String(255), nullable=False)
+    slug = db.Column(db.String(255), nullable=True, index=True)
     color = db.Column(db.String(7), nullable=True)
     icon = db.Column(db.String(50), nullable=True)
     pinned = db.Column(db.Boolean, default=False, nullable=False, index=True)
@@ -24,5 +25,6 @@ class Folder(db.Model):
     __table_args__ = (
         db.Index('ix_folders_user_active', 'user_id', 'soft_deleted'),
         db.Index('ix_folders_parent', 'parent_id', 'user_id', 'soft_deleted'),
+        db.Index('ix_folders_user_slug', 'user_id', 'slug', 'soft_deleted'),
         db.UniqueConstraint('user_id', 'name', 'soft_deleted', name='uq_user_folder_name'),
     )

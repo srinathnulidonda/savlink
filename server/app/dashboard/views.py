@@ -319,11 +319,12 @@ def _serialize_folder_preview(folder: Folder) -> Dict[str, Any]:
     return {
         'id': folder.id,
         'name': folder.name,
+        'slug': folder.slug or folder.name.lower().replace(' ', '-')[:100],
         'icon': folder.icon or '📁',
         'color': folder.color,
         'count': count,
         'link_count': count,
-        'pinned': folder.pinned
+        'pinned': folder.pinned,
     }
 
 

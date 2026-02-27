@@ -17,7 +17,7 @@ def _uid():
     return getattr(u, 'id', getattr(u, 'uid', None))
 
 
-# ── Profile ──────────────────────────────────────────────────────────
+#  Profile 
 
 @users_bp.route('/profile', methods=['GET'])
 @require_auth
@@ -50,7 +50,7 @@ def update_avatar():
     return success_response(message='Avatar updated') if ok else error_response('Update failed', 500)
 
 
-# ── Preferences ──────────────────────────────────────────────────────
+#  Preferences 
 
 @users_bp.route('/preferences', methods=['GET'])
 @require_auth
@@ -76,7 +76,7 @@ def reset_preferences():
     return success_response({'preferences': prefs})
 
 
-# ── Stats ────────────────────────────────────────────────────────────
+#  Stats 
 
 @users_bp.route('/stats', methods=['GET'])
 @require_auth
@@ -89,7 +89,7 @@ def user_stats():
     return success_response({'stats': stats})
 
 
-# ── Emergency Access ─────────────────────────────────────────────────
+#  Emergency Access 
 
 @users_bp.route('/emergency', methods=['GET'])
 @require_auth
@@ -112,7 +112,7 @@ def disable_emergency():
     return success_response(message='Emergency access disabled') if ok else error_response('Failed', 500)
 
 
-# ── Account ──────────────────────────────────────────────────────────
+#  Account 
 
 @users_bp.route('/export', methods=['GET'])
 @require_auth

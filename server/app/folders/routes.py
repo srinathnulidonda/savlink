@@ -38,6 +38,35 @@ def get_detail(folder_id):
     return success_response(data)
 
 
+@folders_bp.route('/s/<string:slug>', methods=['GET'])
+@require_auth
+def get_by_slug(slug):
+    data = service.get_folder_by_slug(uid(), slug)
+    if not data:
+        return error_response('Folder not found', 404)
+    return success_response(data)
+
+
+@folders_bp.route('/s/<string:slug>/links', methods=['GET'])
+@require_auth
+def get_links_by_slug(slug):
+    try:
+        limit = min(max(1, int(request.args.get('limit', 30))), 100)
+    except ValueError:
+        limit = 30
+    params = {
+        'search': request.args.get('search', ''),
+        'sort': request.args.get('sort', 'created_at'),
+        'order': request.args.get('order', 'desc'),
+        'cursor': request.args.get('cursor'),
+        'limit': limit,
+    }
+    result = service.get_folder_links_by_slug(uid(), slug, params)
+    if result is None:
+        return error_response('Folder not found', 404)
+    return success_response(result)
+
+
 @folders_bp.route('/<int:folder_id>/links', methods=['GET'])
 @require_auth
 def get_folder_links(folder_id):

@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ─── Key Prefixes ────────────────────────────────────────────────────
+#  Key Prefixes 
 PREFIX = "savlink"
 TOKEN_CACHE      = f"{PREFIX}:token"        # Verified token data
 USER_CACHE       = f"{PREFIX}:user"         # User profile data
@@ -17,7 +17,7 @@ SESSION_CACHE    = f"{PREFIX}:session"      # Emergency sessions
 RATE_LIMIT       = f"{PREFIX}:rate"         # Rate limiting
 PROVISION_LOCK   = f"{PREFIX}:provision"    # Provisioning locks
 
-# ─── TTLs (seconds) ──────────────────────────────────────────────────
+#  TTLs (seconds) 
 TOKEN_CACHE_TTL     = 300      # 5 minutes (tokens change hourly)
 USER_CACHE_TTL      = 600      # 10 minutes
 SESSION_TTL         = 3600     # 1 hour (emergency sessions)
@@ -31,7 +31,7 @@ AUTH_REQUEST_LIMIT         = 60    # per hour per IP
 LOGIN_ATTEMPT_LIMIT        = 10    # per hour per email
 
 
-# ─── Token Verification Cache ────────────────────────────────────────
+#  Token Verification Cache 
 def hash_token(token: str) -> str:
     """Create a secure hash of the full token for cache key."""
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
@@ -97,7 +97,7 @@ def invalidate_token_cache(token: str) -> bool:
     return redis_client.delete(key) > 0
 
 
-# ─── User Data Cache ─────────────────────────────────────────────────
+#  User Data Cache 
 def cache_user_data(user_id: str, user_data: Dict[str, Any]) -> bool:
     """
     Cache user profile data from database.
@@ -157,7 +157,7 @@ def invalidate_user_cache(user_id: str) -> bool:
     return redis_client.delete(key) > 0
 
 
-# ─── Rate Limiting ───────────────────────────────────────────────────
+#  Rate Limiting 
 def check_rate_limit(
     identifier: str, 
     category: str = 'general',
@@ -229,7 +229,7 @@ def check_auth_rate_limit(ip_address: str) -> Tuple[bool, int]:
     return allowed, remaining
 
 
-# ─── Emergency Sessions ──────────────────────────────────────────────
+#  Emergency Sessions 
 def create_emergency_session(session_id: str, user_id: str, ttl: int = SESSION_TTL) -> bool:
     """Store emergency session in Redis."""
     if not redis_client.available:
@@ -273,7 +273,7 @@ def revoke_emergency_session(session_id: str) -> bool:
     return redis_client.delete(key) > 0
 
 
-# ─── Provisioning Lock ───────────────────────────────────────────────
+#  Provisioning Lock 
 def acquire_provision_lock(user_id: str) -> bool:
     """
     Acquire a lock for user provisioning to prevent duplicate DB writes.
@@ -307,7 +307,7 @@ def release_provision_lock(user_id: str):
     redis_client.delete(key)
 
 
-# ─── Firebase Token Cache (legacy compatibility) ─────────────────────
+#  Firebase Token Cache (legacy compatibility) 
 def cache_firebase_token(token: str, decoded_data: Dict[str, Any], ttl: int = TOKEN_CACHE_TTL) -> bool:
     """Legacy wrapper for cache_token_verification."""
     return cache_token_verification(token, decoded_data)
@@ -318,7 +318,7 @@ def get_cached_firebase_token(token: str) -> Optional[Dict[str, Any]]:
     return get_cached_token_verification(token)
 
 
-# ─── Utility ─────────────────────────────────────────────────────────
+#  Utility 
 def is_redis_available() -> bool:
     """Check if Redis is currently available."""
     return redis_client.available and redis_client.ping()
