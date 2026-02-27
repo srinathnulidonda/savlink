@@ -4,7 +4,7 @@ from app.dashboard import dashboard_bp
 from app.auth.middleware import require_auth
 from app.responses import success_response, error_response
 from app.dashboard import views
-from app.dashboard.serializers import serialize_links
+from app.dashboard.serializers import serialize_link
 from app.cache import warm_user_cache
 import logging
 
@@ -46,7 +46,7 @@ def get_links():
         links, next_cursor, meta = views.resolve_view(
             uid, view, search, cursor, limit, sort, order, **filters
         )
-        return success_response({'links': serialize_links(links), 'meta': meta})
+        return success_response({'links': [serialize_link(l) for l in links], 'meta': meta})
     except Exception as e:
         logger.error("GET /links error: %s", e, exc_info=True)
         return error_response('Failed to load links', 500)
