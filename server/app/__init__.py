@@ -1,10 +1,11 @@
 # server/app/__init__.py
+
 import time
 import logging
 import threading
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
-from .config import get_config
+from .config import get_config, _parse_db_config
 from .extensions import db, migrate, redis_client
 from .database import db_manager
 
@@ -32,7 +33,6 @@ def create_app(config_class=None):
 
 
 def _log_startup_banner(app):
-    """Display professional startup banner"""
     import os
     from datetime import datetime, timezone
 
@@ -42,15 +42,26 @@ def _log_startup_banner(app):
     cors_count = len(app.config.get('CORS_ORIGINS', []))
 
     db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    db_info = _parse_db_config(db_uri)
     db_driver = db_uri.split('://')[0].split('+')[0] if '://' in db_uri else 'none'
+
+    if db_info['pooler']:
+        db_status = f"{db_driver} ({db_info['provider']} {db_info['pool_mode']} mode)"
+    else:
+        db_status = db_driver
 
     firebase_ok = bool(app.config.get('FIREBASE_CONFIG_JSON'))
     redis_ok = redis_client.available
 
+    engine_opts = app.config.get('SQLALCHEMY_ENGINE_OPTIONS', {})
+    pool_size = engine_opts.get('pool_size', '?')
+    max_overflow = engine_opts.get('max_overflow', '?')
+
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
     services = [
-        ("database", db_driver, db_driver != 'none'),
+        ("database", db_status, db_driver != 'none'),
+        ("pool", f"size={pool_size} overflow={max_overflow}", True),
         ("redis", "connected" if redis_ok else "unavailable", redis_ok),
         ("auth", "firebase" if firebase_ok else "disabled", firebase_ok),
     ]
@@ -87,6 +98,7 @@ def _log_startup_banner(app):
     logger.info("  ✓ Ready to accept connections")
     logger.info("")
 
+
 def _init_extensions(app):
     db.init_app(app)
     migrate.init_app(app, db)
@@ -113,7 +125,7 @@ def _register_hooks(app):
     def _after(resp):
         if hasattr(g, 'request_start_time'):
             dur = time.time() - g.request_start_time
-            if dur > 10:
+            if dur > 5:
                 logger.warning("[SLOW] %s %s took %.2fs", request.method, request.path, dur)
 
         resp.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
@@ -132,6 +144,15 @@ def _register_hooks(app):
 
         return resp
 
+    @app.teardown_appcontext
+    def _teardown(exception=None):
+        try:
+            if exception:
+                db.session.rollback()
+            db.session.remove()
+        except Exception:
+            pass
+
 
 def _register_health(app):
     @app.route('/')
@@ -149,6 +170,7 @@ def _register_health(app):
     @app.route('/health/full')
     def _health_full():
         checks = {'database': db_manager.check_health()}
+        checks['pool'] = db_manager.get_pool_status()
         if redis_client.available:
             checks['redis'] = {'healthy': redis_client.ping()}
         status = 'healthy' if checks['database'].get('healthy') else 'degraded'
