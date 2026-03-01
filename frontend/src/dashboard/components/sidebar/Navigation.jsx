@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 const NAV_ITEMS = [
   { section: 'workspace', items: [
     { id: 'home', label: 'Home', path: '/dashboard/home', icon: <NavIcon d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /> },
-    { id: 'myfiles', label: 'My Files', path: '/dashboard/my-files', icon: <NavIcon d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" /> },
+    { id: 'myfiles', label: 'My Files', path: '/dashboard/myfiles', icon: <NavIcon d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" /> },
   ]},
   { section: 'links', label: 'Links', items: [
     { id: 'all', label: 'All Links', path: '/dashboard/links/all', countKey: 'all', icon: <NavIcon d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /> },
@@ -32,7 +32,7 @@ export default function Navigation({ stats = {}, activeView, onViewChange, exclu
   const currentView = (() => {
     const p = location.pathname;
     if (p.includes('/home') || p === '/dashboard' || p === '/dashboard/') return 'home';
-    if (p.includes('/my-files')) return 'myfiles';
+    if (p.includes('/myfiles')) return 'myfiles';
     if (p.includes('/all')) return 'all';
     if (p.includes('/starred')) return 'starred';
     if (p.includes('/recent')) return 'recent';

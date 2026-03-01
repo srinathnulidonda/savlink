@@ -1,4 +1,5 @@
 # server/app/extensions.py
+
 import os
 import time
 import logging
@@ -27,9 +28,15 @@ class RedisClient:
             logger.info("REDIS_URL not set — Redis disabled")
             return
         try:
-            kw = dict(decode_responses=True, max_connections=20,
-                      socket_connect_timeout=10, socket_timeout=5,
-                      retry_on_timeout=True, health_check_interval=30)
+            is_prod = os.environ.get('FLASK_ENV') == 'production'
+            kw = dict(
+                decode_responses=True,
+                max_connections=50 if is_prod else 20,
+                socket_connect_timeout=5 if is_prod else 10,
+                socket_timeout=3 if is_prod else 5,
+                retry_on_timeout=True,
+                health_check_interval=30,
+            )
             if url.startswith('rediss://'):
                 kw['connection_class'] = _redis.connection.SSLConnection
                 kw['ssl_cert_reqs'] = None
@@ -37,7 +44,8 @@ class RedisClient:
             self._client = _redis.Redis(connection_pool=pool)
             self._client.ping()
             self._available = True
-            logger.info("Redis connected")
+            logger.info("Redis connected (max_connections=%d)",
+                        kw['max_connections'])
         except Exception as e:
             logger.warning("Redis unavailable: %s", e)
             self._available = False
@@ -66,13 +74,26 @@ class RedisClient:
             self._available = False
             return None
 
-    def get(self, key):             return self._exec(self._client.get, key) if self.available else None
-    def set(self, key, val, **kw):  return self._exec(self._client.set, key, val, **kw) if self.available else False
-    def setex(self, key, ttl, val): return self._exec(self._client.setex, key, ttl, val) if self.available else False
-    def delete(self, *keys):        return self._exec(self._client.delete, *keys) if self.available else 0
-    def incr(self, key):            return self._exec(self._client.incr, key) if self.available else None
-    def expire(self, key, s):       return self._exec(self._client.expire, key, s) if self.available else False
-    def exists(self, *keys):        return self._exec(self._client.exists, *keys) if self.available else 0
+    def get(self, key):
+        return self._exec(self._client.get, key) if self.available else None
+
+    def set(self, key, val, **kw):
+        return self._exec(self._client.set, key, val, **kw) if self.available else False
+
+    def setex(self, key, ttl, val):
+        return self._exec(self._client.setex, key, ttl, val) if self.available else False
+
+    def delete(self, *keys):
+        return self._exec(self._client.delete, *keys) if self.available else 0
+
+    def incr(self, key):
+        return self._exec(self._client.incr, key) if self.available else None
+
+    def expire(self, key, s):
+        return self._exec(self._client.expire, key, s) if self.available else False
+
+    def exists(self, *keys):
+        return self._exec(self._client.exists, *keys) if self.available else 0
 
     def ping(self):
         if not self._client:

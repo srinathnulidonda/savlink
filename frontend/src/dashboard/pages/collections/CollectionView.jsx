@@ -1,25 +1,38 @@
 // src/dashboard/pages/collections/CollectionView.jsx
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { ContextMenuProvider } from '../../components/common/ContextMenu';
 import { useCollection } from './useCollection';
 import CollectionHeader from './CollectionHeader';
 import CollectionEmpty from './CollectionEmpty';
+import MobileFilesToolbar from '../../components/mobile/MobileFilesToolbar';
+import MobileSelectionBar from '../../components/mobile/MobileSelectionBar';
+import FolderCard from '../../components/folders/FolderCard';
+import FolderPropertiesModal from '../../modals/FolderProperties/FolderPropertiesModal';
 import LinkCard from '../../components/links/LinkCard';
 import LinkDetails from '../../components/links/LinkDetails';
 import LinksToolbar from '../../components/links/LinksToolbar';
 import LinkSkeleton from '../../components/links/LinkSkeleton';
-import { resolveDomain, resolveFavicon, formatUrl, timeAgo } from '../../components/links/LinkMeta';
+import MobileLinkSheet from '../../components/links/MobileLinkSheet';
+import LinksService from '../../../services/links.service';
+import FoldersService from '../../../services/folders.service';
+import { BOTTOM_NAV_HEIGHT } from '../../components/common/MobileBottomNav';
+import { IconWarning } from '../../components/common/Icons';
 import toast from 'react-hot-toast';
 
-function displayIcon(icon) {
-  if (!icon) return '📁';
-  if (icon.length <= 2) return icon;
-  return '📁';
+function haptic(ms = 50) {
+  try { navigator?.vibrate?.(ms); } catch {}
 }
 
-export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateFolder }) {
+const COLLECTION_SORT_FIELDS = [
+  { id: 'title', label: 'Name', defaultOrder: 'asc' },
+  { id: 'updated_at', label: 'Date modified', defaultOrder: 'desc' },
+  { id: 'created_at', label: 'Date added', defaultOrder: 'desc' },
+  { id: 'click_count', label: 'Most clicked', defaultOrder: 'desc' },
+];
+
+export default function CollectionView({ onAddLink, onCreateFolder }) {
   const navigate = useNavigate();
   const {
     folderId, folder, children, breadcrumb, stats,
@@ -28,11 +41,25 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
     loadMore, refresh, updateLink, deleteLink, pinLink, starLink, archiveLink,
   } = useCollection();
 
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem('savlink_collection_view') || 'list'; } catch { return 'list'; }
+  });
+  const handleViewModeChange = useCallback((mode) => {
+    setViewMode(mode);
+    try { localStorage.setItem('savlink_collection_view', mode); } catch {}
+  }, []);
+
   const [selectedLink, setSelectedLink] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [hoveredId, setHoveredId] = useState(null);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [isMobile, setIsMobile] = useState(false);
+  const [mobileSelectMode, setMobileSelectMode] = useState(false);
+  const [propsFolder, setPropsFolder] = useState(null);
+  const [propsOpen, setPropsOpen] = useState(false);
+
+  const lpTimerRef = useRef(null);
+  const lpPosRef = useRef(null);
+  const lpFiredRef = useRef(false);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -41,24 +68,212 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  useEffect(() => { setSelectedLink(null); setSelectedIds(new Set()); setFocusedIndex(-1); }, [folderId]);
+  useEffect(() => {
+    setSelectedLink(null);
+    setSelectedIds(new Set());
+    setFocusedIndex(-1);
+    setMobileSelectMode(false);
+  }, [folderId]);
 
-  const isSelectMode = selectedIds.size > 0;
+  useEffect(() => {
+    if (isMobile && mobileSelectMode && selectedIds.size === 0) setMobileSelectMode(false);
+  }, [isMobile, mobileSelectMode, selectedIds.size]);
+
+  useEffect(() => {
+    if (isMobile && selectedLink && !mobileSelectMode) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = '';
+    return () => { document.body.style.overflow = ''; };
+  }, [isMobile, selectedLink, mobileSelectMode]);
+
+  useEffect(() => () => clearTimeout(lpTimerRef.current), []);
+
+  const startLongPress = useCallback((e, id) => {
+    if (!isMobile) return;
+    lpFiredRef.current = false;
+    const touch = e.touches?.[0];
+    lpPosRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    lpTimerRef.current = setTimeout(() => {
+      lpFiredRef.current = true;
+      haptic(50);
+      setMobileSelectMode(true);
+      setSelectedIds(new Set([id]));
+      setSelectedLink(null);
+    }, 500);
+  }, [isMobile]);
+
+  const moveLongPress = useCallback((e) => {
+    if (!lpPosRef.current) return;
+    const touch = e.touches?.[0];
+    if (!touch) return;
+    if (Math.abs(touch.clientX - lpPosRef.current.x) > 10 ||
+      Math.abs(touch.clientY - lpPosRef.current.y) > 10) {
+      clearTimeout(lpTimerRef.current);
+      lpPosRef.current = null;
+    }
+  }, []);
+
+  const endLongPress = useCallback(() => {
+    clearTimeout(lpTimerRef.current);
+    lpPosRef.current = null;
+  }, []);
+
+  const wasLongPress = useCallback(() => {
+    if (lpFiredRef.current) { lpFiredRef.current = false; return true; }
+    return false;
+  }, []);
+
+  const isSelectMode = mobileSelectMode || selectedIds.size > 0;
+
+  const toggleSelectById = useCallback((id) => {
+    haptic(4);
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }, []);
 
   const toggleSelect = useCallback((id, e) => {
     e?.stopPropagation?.();
-    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  }, []);
-
-  const toggleSelectById = useCallback((id) => {
-    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  }, []);
+    toggleSelectById(id);
+  }, [toggleSelectById]);
 
   const selectAll = useCallback(() => {
-    setSelectedIds(prev => prev.size === links.length ? new Set() : new Set(links.map(l => l.id)));
-  }, [links]);
+    const allIds = [...children.map(c => c.id), ...links.map(l => l.id)];
+    setSelectedIds(prev => prev.size === allIds.length ? new Set() : new Set(allIds));
+  }, [children, links]);
 
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const exitSelectionMode = useCallback(() => {
+    setMobileSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const selectedAnalysis = useMemo(() => {
+    const linkIds = new Set(links.map(l => l.id));
+    const folderIds = new Set(children.map(c => c.id));
+    let hasLinks = false, hasFolders = false;
+    selectedIds.forEach(id => {
+      if (linkIds.has(id)) hasLinks = true;
+      if (folderIds.has(id)) hasFolders = true;
+    });
+    return { hasLinks, hasFolders };
+  }, [selectedIds, links, children]);
+
+  const totalItems = children.length + links.length;
+
+  const handleChildRename = useCallback(async (child) => {
+    const newName = window.prompt('Rename folder', child.name);
+    if (!newName || newName.trim() === child.name) return;
+    const result = await FoldersService.updateFolder(child.id, { name: newName.trim() });
+    if (result.success) { toast.success('Renamed'); refresh(); }
+    else toast.error(result.error || 'Rename failed');
+  }, [refresh]);
+
+  const handleChildTogglePin = useCallback(async (child) => {
+    const result = await FoldersService.togglePin(child.id);
+    if (result.success) { toast.success(child.pinned ? 'Unpinned' : 'Pinned'); refresh(); }
+  }, [refresh]);
+
+  const handleChildDelete = useCallback(async (child) => {
+    const result = await FoldersService.deleteFolder(child.id);
+    if (result.success) { toast.success('Deleted'); refresh(); }
+    else toast.error(result.error || 'Delete failed');
+  }, [refresh]);
+
+  const handleMobileDelete = useCallback(async () => {
+    const ids = [...selectedIds];
+    if (!window.confirm(`Delete ${ids.length} item${ids.length > 1 ? 's' : ''}?`)) return;
+    const linkIdSet = new Set(links.map(l => l.id));
+    const folderIdSet = new Set(children.map(c => c.id));
+    let deleted = 0;
+    const linkIds = ids.filter(id => linkIdSet.has(id));
+    const folderIds = ids.filter(id => folderIdSet.has(id));
+    if (linkIds.length > 0) {
+      const r = await LinksService.bulkDelete(linkIds);
+      if (r?.success) deleted += linkIds.length;
+    }
+    for (const fid of folderIds) {
+      const r = await FoldersService.deleteFolder(fid);
+      if (r?.success) deleted++;
+    }
+    if (deleted > 0) { toast.success(`${deleted} item${deleted > 1 ? 's' : ''} deleted`); refresh(); }
+    exitSelectionMode();
+  }, [selectedIds, links, children, refresh, exitSelectionMode]);
+
+  const handleMobileArchive = useCallback(async () => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    const linkIds = [...selectedIds].filter(id => linkIdSet.has(id));
+    if (linkIds.length === 0) { toast('No links to archive', { icon: '📦' }); return; }
+    const r = await LinksService.bulkArchive(linkIds);
+    if (r?.success) { toast.success(`${linkIds.length} archived`); refresh(); }
+    exitSelectionMode();
+  }, [selectedIds, links, refresh, exitSelectionMode]);
+
+  const handleMobileMove = useCallback(async (targetFolderId) => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    const linkIds = [...selectedIds].filter(id => linkIdSet.has(id));
+    if (linkIds.length === 0) { toast('No links to move', { icon: '📂' }); exitSelectionMode(); return; }
+    let moved = 0;
+    for (const id of linkIds) {
+      const r = await LinksService.moveToFolder(id, targetFolderId);
+      if (r?.success) moved++;
+    }
+    if (moved > 0) { toast.success(`${moved} link${moved > 1 ? 's' : ''} moved`); refresh(); }
+    exitSelectionMode();
+  }, [selectedIds, links, refresh, exitSelectionMode]);
+
+  const handleMobileStar = useCallback(async () => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    for (const id of selectedIds) { if (linkIdSet.has(id)) await starLink(id); }
+    exitSelectionMode();
+  }, [selectedIds, links, starLink, exitSelectionMode]);
+
+  const handleMobilePin = useCallback(async () => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    const folderIdSet = new Set(children.map(c => c.id));
+    for (const id of selectedIds) {
+      if (linkIdSet.has(id)) await pinLink(id);
+      else if (folderIdSet.has(id)) await FoldersService.togglePin(id);
+    }
+    toast.success('Updated'); refresh();
+    exitSelectionMode();
+  }, [selectedIds, links, children, pinLink, refresh, exitSelectionMode]);
+
+  const handleMobileCopyLinks = useCallback(async () => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    const urls = [...selectedIds]
+      .filter(id => linkIdSet.has(id))
+      .map(id => links.find(l => l.id === id))
+      .filter(Boolean)
+      .map(l => l.original_url)
+      .join('\n');
+    if (!urls) { toast('No link URLs to copy', { icon: '🔗' }); exitSelectionMode(); return; }
+    try { await navigator.clipboard.writeText(urls); toast.success('URLs copied'); }
+    catch { toast.error('Copy failed'); }
+    exitSelectionMode();
+  }, [selectedIds, links, exitSelectionMode]);
+
+  const handleMobileOpenLinks = useCallback(() => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    [...selectedIds]
+      .filter(id => linkIdSet.has(id))
+      .map(id => links.find(l => l.id === id))
+      .filter(Boolean)
+      .forEach(l => window.open(l.original_url, '_blank', 'noopener,noreferrer'));
+    exitSelectionMode();
+  }, [selectedIds, links, exitSelectionMode]);
+
+  const handleMobileCopyMarkdown = useCallback(async () => {
+    const linkIdSet = new Set(links.map(l => l.id));
+    const md = [...selectedIds]
+      .filter(id => linkIdSet.has(id))
+      .map(id => links.find(l => l.id === id))
+      .filter(Boolean)
+      .map(l => `[${l.title || l.original_url}](${l.original_url})`)
+      .join('\n');
+    if (!md) { toast('No links to copy', { icon: '📋' }); exitSelectionMode(); return; }
+    try { await navigator.clipboard.writeText(md); toast.success('Markdown copied'); }
+    catch { toast.error('Copy failed'); }
+    exitSelectionMode();
+  }, [selectedIds, links, exitSelectionMode]);
 
   const bulkDelete = useCallback(async () => {
     if (!window.confirm(`Delete ${selectedIds.size} links?`)) return;
@@ -72,11 +287,27 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
   }, [selectedIds, archiveLink, clearSelection]);
 
   const openDetails = useCallback((link) => {
-    if (isSelectMode) return;
+    if (mobileSelectMode) { toggleSelectById(link.id); return; }
+    if (isSelectMode && !isMobile) { toggleSelectById(link.id); return; }
     setSelectedLink(prev => prev?.id === link.id ? null : link);
-  }, [isSelectMode]);
+  }, [mobileSelectMode, isSelectMode, isMobile, toggleSelectById]);
 
   const closeDetails = useCallback(() => setSelectedLink(null), []);
+
+  const handleSubfolderClick = useCallback((child) => {
+    if (wasLongPress()) return;
+    if (mobileSelectMode) { toggleSelectById(child.id); return; }
+    navigate(`/dashboard/myfiles/${child.slug}`);
+  }, [mobileSelectMode, wasLongPress, toggleSelectById, navigate]);
+
+  const handleLinkClick = useCallback((link) => {
+    if (wasLongPress()) return;
+    openDetails(link);
+  }, [wasLongPress, openDetails]);
+
+  const handleSortChange = useCallback((by, order) => {
+    setSortBy(by); setSortOrder(order);
+  }, [setSortBy, setSortOrder]);
 
   useEffect(() => {
     if (isMobile) return;
@@ -95,36 +326,32 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
     return () => window.removeEventListener('keydown', handler);
   }, [isMobile, focusedIndex, links, selectedIds, selectedLink, openDetails, toggleSelectById, clearSelection, selectAll, closeDetails]);
 
-  useEffect(() => {
-    if (isMobile && selectedLink) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isMobile, selectedLink]);
-
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6">
         <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-4">
-          <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
+          <IconWarning className="w-6 h-6 text-red-400" />
         </div>
         <h3 className="text-[15px] font-medium text-white mb-1">Folder not found</h3>
         <p className="text-[13px] text-gray-500 mb-4">{error}</p>
-        <button onClick={() => navigate('/dashboard/my-files')}
-          className="text-[13px] text-primary hover:text-primary-light font-medium">
-          ← Back to My Files
-        </button>
+        <button onClick={() => navigate('/dashboard/myfiles')}
+          className="text-[13px] text-primary hover:text-primary-light font-medium">← Back to My Files</button>
       </div>
     );
   }
 
-  if (loading) {
+  if (loading && !folder) {
     return (
-      <div className="p-6">
+      <div className={isMobile ? 'p-3' : 'p-6'}>
         <div className="space-y-3 mb-8">
-          <div className="flex items-center gap-1.5"><div className="h-3 w-16 bg-white/[0.04] rounded animate-pulse" /><div className="h-3 w-3 bg-white/[0.04] rounded animate-pulse" /><div className="h-3 w-20 bg-white/[0.04] rounded animate-pulse" /></div>
-          <div className="flex items-center gap-3"><div className="w-11 h-11 rounded-xl bg-white/[0.04] animate-pulse" /><div className="space-y-2"><div className="h-5 w-40 bg-white/[0.04] rounded animate-pulse" /><div className="h-3 w-28 bg-white/[0.04] rounded animate-pulse" /></div></div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/[0.04] animate-pulse" />
+            <div className="space-y-2 flex-1">
+              <div className="h-5 w-40 bg-white/[0.04] rounded animate-pulse" />
+              <div className="h-3 w-28 bg-white/[0.04] rounded animate-pulse" />
+            </div>
+          </div>
+          {isMobile && <div className="h-11 bg-white/[0.04] rounded-lg animate-pulse" />}
         </div>
         <LinkSkeleton viewMode={viewMode} />
       </div>
@@ -134,85 +361,140 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
   return (
     <ContextMenuProvider>
       <div className="flex h-full">
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+
+          <AnimatePresence>
+            {isMobile && mobileSelectMode && (
+              <MobileSelectionBar
+                selectedCount={selectedIds.size}
+                onClose={exitSelectionMode}
+                onMove={handleMobileMove}
+                onArchive={handleMobileArchive}
+                onDelete={handleMobileDelete}
+                onStar={handleMobileStar}
+                onPin={handleMobilePin}
+                onCopyLinks={handleMobileCopyLinks}
+                onCopyMarkdown={handleMobileCopyMarkdown}
+                onOpenLinks={handleMobileOpenLinks}
+                onSelectAll={selectAll}
+                hasLinks={selectedAnalysis.hasLinks}
+                hasFolders={selectedAnalysis.hasFolders}
+                totalItems={totalItems}
+              />
+            )}
+          </AnimatePresence>
+
           <CollectionHeader
-            folder={folder}
-            breadcrumb={breadcrumb}
-            stats={stats}
-            onRefresh={refresh}
-            onAddLink={onAddLink}
-            onCreateFolder={onCreateFolder}
-            searchQuery={searchQuery}
-            onSearch={setSearchQuery}
+            folder={folder} breadcrumb={breadcrumb} stats={stats}
+            onRefresh={refresh} onCreateFolder={onCreateFolder}
+            searchQuery={searchQuery} onSearch={setSearchQuery}
             isMobile={isMobile}
           />
 
-          <div className="flex-1 overflow-y-auto overscroll-contain" style={isMobile ? { paddingBottom: `calc(56px + env(safe-area-inset-bottom, 0px) + 8px)` } : undefined}>
-            {children.length > 0 && (
-              <div className={`${isMobile ? 'px-4 pt-4' : 'px-6 pt-5'}`}>
-                <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2.5">
-                  Folders
-                </h3>
-                <div className={viewMode === 'grid' ? 'grid gap-2.5 sm:gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4': 'space-y-0.5'}>
+          {isMobile && (
+            <MobileFilesToolbar
+              sortBy={sortBy} sortOrder={sortOrder}
+              onSortChange={handleSortChange}
+              viewMode={viewMode} onViewModeChange={handleViewModeChange}
+              sortFields={COLLECTION_SORT_FIELDS}
+            />
+          )}
 
-                  {children.map(child => (
-                    <button key={child.id}
-                      onClick={() => navigate(`/dashboard/my-files/${child.slug}`)}
-                      className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] hover:bg-white/[0.04] transition-all group text-left">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0"
-                        style={{ backgroundColor: `${child.color || '#6B7280'}15`, border: `1px solid ${child.color || '#6B7280'}30` }}>
-                        {displayIcon(child.icon)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-medium text-gray-300 truncate group-hover:text-white transition-colors">{child.name}</p>
-                        <p className="text-[11px] text-gray-600">{child.link_count ?? 0} links</p>
-                      </div>
-                    </button>
+          {!isMobile && links.length > 0 && (
+            <LinksToolbar
+              totalCount={meta.total ?? links.length}
+              selectedCount={selectedIds.size}
+              isSelectMode={!isMobile && selectedIds.size > 0}
+              sortBy={sortBy} sortOrder={sortOrder}
+              onSortChange={handleSortChange}
+              onSelectAll={selectAll} onClearSelection={clearSelection}
+              onBulkDelete={bulkDelete} onBulkArchive={bulkArchive}
+              searchQuery={searchQuery}
+            />
+          )}
+
+          <div
+            className="flex-1 overflow-y-auto overscroll-contain"
+            style={isMobile
+              ? { paddingBottom: `calc(${BOTTOM_NAV_HEIGHT}px + env(safe-area-inset-bottom, 0px) + 8px)` }
+              : undefined}
+          >
+            {children.length > 0 && (
+              <div className={isMobile ? 'px-3 pt-3' : 'px-6 pt-5'}>
+                <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">
+                  Folders <span className="text-gray-700 font-normal ml-1">{children.length}</span>
+                </h3>
+                <div className={
+                  viewMode === 'grid'
+                    ? `grid gap-2 ${isMobile ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'}`
+                    : 'space-y-px'
+                }>
+                  {children.map((child, i) => (
+                    <div
+                      key={child.id}
+                      onTouchStart={(e) => startLongPress(e, child.id)}
+                      onTouchMove={moveLongPress}
+                      onTouchEnd={endLongPress}
+                      onTouchCancel={endLongPress}
+                      onContextMenu={(e) => { if (isMobile) e.preventDefault(); }}
+                    >
+                      <FolderCard
+                        folder={child}
+                        index={i}
+                        viewMode={viewMode}
+                        isMobile={isMobile}
+                        isSelected={selectedIds.has(child.id)}
+                        isSelectMode={mobileSelectMode || (!isMobile && selectedIds.size > 0)}
+                        onClick={() => handleSubfolderClick(child)}
+                        onSelect={(e) => toggleSelect(child.id, e)}
+                        onSelectById={toggleSelectById}
+                        onOpen={() => navigate(`/dashboard/myfiles/${child.slug}`)}
+                        onRename={() => handleChildRename(child)}
+                        onTogglePin={() => handleChildTogglePin(child)}
+                        onDelete={() => handleChildDelete(child)}
+                        onProperties={() => { setPropsFolder(child); setPropsOpen(true); }}
+                        onCreateFolder={() => onCreateFolder?.(child.id)}
+                        onAddLink={onAddLink}
+                      />
+                    </div>
                   ))}
                 </div>
-                <div className="border-t border-white/[0.04] mb-1" />
+                {links.length > 0 && (
+                  <div className={`border-t border-white/[0.04] ${isMobile ? 'mt-3 mb-1' : 'mt-4 mb-3'}`} />
+                )}
               </div>
             )}
 
             {links.length === 0 && !linksLoading ? (
-              <CollectionEmpty
-                folderName={folder?.name || 'This folder'}
-                onAddLink={onAddLink}
-                searchQuery={searchQuery}
-              />
-            ) : (
-              <>
-                <LinksToolbar
-                  totalCount={meta.total ?? links.length}
-                  selectedCount={selectedIds.size}
-                  isSelectMode={isSelectMode}
-                  sortBy={sortBy}
-                  sortOrder={sortOrder}
-                  onSortChange={(by, order) => { setSortBy(by); setSortOrder(order); }}
-                  onSelectAll={selectAll}
-                  onClearSelection={clearSelection}
-                  onBulkDelete={bulkDelete}
-                  onBulkArchive={bulkArchive}
-                  searchQuery={searchQuery}
-                />
-                <div className={`${isMobile ? 'p-2.5 pt-2' : 'p-4 pt-3 lg:p-6 lg:pt-3'}`}>
-                  <div className={viewMode === 'grid'
-                    ? 'grid gap-2.5 sm:gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-                    : 'space-y-0.5'}
-                    role="listbox" aria-label="Links">
-                    <AnimatePresence mode="popLayout">
-                      {links.map((link, index) => (
+              <CollectionEmpty folderName={folder?.name || 'This folder'} onAddLink={onAddLink} searchQuery={searchQuery} />
+            ) : links.length > 0 && (
+              <div className={children.length === 0 ? (isMobile ? 'px-3 pt-3' : 'px-6 pt-5') : (isMobile ? 'px-3' : 'px-6')}>
+                <h3 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 px-1">
+                  Links <span className="text-gray-700 font-normal ml-1">{meta.total ?? links.length}</span>
+                </h3>
+                <div
+                  className={viewMode === 'grid'
+                    ? `grid gap-2 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}`
+                    : 'space-y-px'}
+                  role="listbox"
+                >
+                  <AnimatePresence mode="popLayout">
+                    {links.map((link, index) => (
+                      <div
+                        key={link.id}
+                        onTouchStart={(e) => startLongPress(e, link.id)}
+                        onTouchMove={moveLongPress}
+                        onTouchEnd={endLongPress}
+                        onTouchCancel={endLongPress}
+                        onContextMenu={(e) => { if (isMobile) e.preventDefault(); }}
+                      >
                         <LinkCard
-                          key={link.id}
-                          link={link}
-                          index={index}
-                          viewMode={viewMode}
+                          link={link} index={index} viewMode={viewMode}
                           isSelected={selectedIds.has(link.id)}
                           isActive={selectedLink?.id === link.id}
                           isFocused={focusedIndex === index}
-                          isSelectMode={isSelectMode}
-                          onHover={setHoveredId}
-                          onClick={() => openDetails(link)}
+                          isSelectMode={mobileSelectMode || (!isMobile && selectedIds.size > 0)}
+                          onClick={() => handleLinkClick(link)}
                           onSelect={(e) => toggleSelect(link.id, e)}
                           onSelectById={toggleSelectById}
                           onPin={() => pinLink(link.id)}
@@ -220,40 +502,39 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
                           onArchive={() => archiveLink(link.id)}
                           onDelete={() => deleteLink(link.id)}
                         />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-
-                  {meta.has_more && (
-                    <div className="flex justify-center py-6">
-                      <button onClick={loadMore} disabled={linksLoading}
-                        className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-gray-400 bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] rounded-lg transition-colors disabled:opacity-50">
-                        {linksLoading ? (
-                          <><div className="w-3.5 h-3.5 border-2 border-gray-500 border-t-gray-300 rounded-full animate-spin" /> Loading…</>
-                        ) : 'Load more'}
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="h-6" />
+                      </div>
+                    ))}
+                  </AnimatePresence>
                 </div>
-              </>
+
+                {meta.has_more && (
+                  <div className="flex justify-center py-5">
+                    <button onClick={loadMore} disabled={linksLoading}
+                      className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-medium
+                                 text-gray-400 bg-white/[0.03] border border-white/[0.06]
+                                 hover:bg-white/[0.06] rounded-lg transition-colors
+                                 disabled:opacity-50 touch-manipulation">
+                      {linksLoading
+                        ? <><div className="w-3.5 h-3.5 border-2 border-gray-500 border-t-gray-300 rounded-full animate-spin" /> Loading…</>
+                        : 'Load more'}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             {linksLoading && links.length === 0 && (
-              <div className={`${isMobile ? 'p-2.5' : 'p-6'}`}>
-                <LinkSkeleton viewMode={viewMode} />
-              </div>
+              <div className={isMobile ? 'p-3' : 'p-6'}><LinkSkeleton viewMode={viewMode} /></div>
             )}
+
+            <div className={isMobile ? 'h-4' : 'h-8'} />
           </div>
         </div>
 
         <AnimatePresence>
           {selectedLink && !isMobile && (
             <LinkDetails
-              link={selectedLink}
-              onClose={closeDetails}
-              onUpdate={updateLink}
+              link={selectedLink} onClose={closeDetails} onUpdate={updateLink}
               onDelete={(id) => { deleteLink(id); closeDetails(); }}
               onPin={() => pinLink(selectedLink.id)}
               onStar={() => starLink(selectedLink.id)}
@@ -263,10 +544,9 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
         </AnimatePresence>
 
         <AnimatePresence>
-          {selectedLink && isMobile && (
-            <MobileSheet
-              link={selectedLink}
-              onClose={closeDetails}
+          {selectedLink && isMobile && !mobileSelectMode && (
+            <MobileLinkSheet
+              link={selectedLink} onClose={closeDetails}
               onPin={() => pinLink(selectedLink.id)}
               onStar={() => starLink(selectedLink.id)}
               onArchive={() => { archiveLink(selectedLink.id); closeDetails(); }}
@@ -275,66 +555,13 @@ export default function CollectionView({ viewMode = 'grid', onAddLink, onCreateF
           )}
         </AnimatePresence>
       </div>
+
+      <FolderPropertiesModal
+        isOpen={propsOpen}
+        onClose={() => { setPropsOpen(false); setPropsFolder(null); }}
+        folder={propsFolder}
+        onUpdate={refresh}
+      />
     </ContextMenuProvider>
-  );
-}
-
-function MobileSheet({ link, onClose, onPin, onStar, onArchive, onDelete }) {
-  const domain = resolveDomain(link);
-  const favicon = resolveFavicon(link, 64);
-  const [faviconErr, setFaviconErr] = useState(false);
-
-  return (
-    <>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <motion.div
-        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 32, stiffness: 380 }}
-        drag="y" dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0, bottom: 0.6 }}
-        onDragEnd={(_, info) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[#111] border-t border-white/[0.08] rounded-t-2xl overflow-hidden max-h-[75vh]"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
-        <div className="flex justify-center pt-3 pb-1"><div className="w-9 h-1 rounded-full bg-white/[0.15]" /></div>
-        <div className="px-5 pt-2 pb-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center flex-shrink-0 overflow-hidden">
-              {favicon && !faviconErr
-                ? <img src={favicon} alt="" className="w-6 h-6" onError={() => setFaviconErr(true)} />
-                : <span className="text-sm font-bold text-gray-500 uppercase">{domain?.[0] || '?'}</span>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-[15px] font-semibold text-white leading-snug line-clamp-2">{link.title || 'Untitled'}</h2>
-              <p className="text-[11px] text-gray-500 truncate mt-0.5">{formatUrl(link.original_url)}</p>
-            </div>
-          </div>
-        </div>
-        <div className="px-5 pb-4 space-y-2.5">
-          <div className="grid grid-cols-2 gap-2.5">
-            <SheetBtn onClick={() => window.open(link.original_url, '_blank', 'noopener')} primary>Open link</SheetBtn>
-            <SheetBtn onClick={async () => { try { await navigator.clipboard.writeText(link.original_url); toast.success('Copied'); } catch {} }}>Copy URL</SheetBtn>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5">
-            <SheetBtn onClick={onStar} active={link.starred}>{link.starred ? '★ Unstar' : '☆ Star'}</SheetBtn>
-            <SheetBtn onClick={onPin} active={link.pinned}>{link.pinned ? 'Unpin' : 'Pin'}</SheetBtn>
-          </div>
-          <SheetBtn onClick={onArchive}>{link.archived ? 'Restore' : 'Archive'}</SheetBtn>
-          <button onClick={() => { if (window.confirm('Delete this link?')) onDelete?.(); }}
-            className="w-full py-2.5 text-[12px] font-medium text-gray-600 hover:text-red-400 rounded-xl transition-colors">
-            Delete
-          </button>
-        </div>
-      </motion.div>
-    </>
-  );
-}
-
-function SheetBtn({ onClick, primary, active, children }) {
-  return (
-    <button onClick={onClick}
-      className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[13px] font-medium transition-colors touch-manipulation active:scale-[0.97]
-        ${primary ? 'bg-primary text-white' : active ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-white/[0.03] text-gray-300 border border-white/[0.06]'}`}>
-      {children}
-    </button>
   );
 }

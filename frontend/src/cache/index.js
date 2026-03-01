@@ -12,12 +12,13 @@ function dispatch(keys) {
 }
 
 export function invalidateHome() {
-  cache.drop(...HOME_KEYS);
-  dispatch(HOME_KEYS);
+  const keys = [...HOME_KEYS, KEYS.ROOT_ITEMS];
+  cache.drop(...keys);
+  dispatch(keys);
 }
 
 export function invalidateLinks() {
-  const keys = [KEYS.OVERVIEW, KEYS.HOME, KEYS.STATS, KEYS.RECENT];
+  const keys = [KEYS.OVERVIEW, KEYS.HOME, KEYS.STATS, KEYS.RECENT, KEYS.ROOT_ITEMS];
   cache.drop(...keys);
   dispatch(keys);
 }
@@ -35,8 +36,10 @@ export function invalidateStarred() {
 }
 
 export function invalidateFolders() {
-  const keys = [KEYS.OVERVIEW, KEYS.FOLDERS, KEYS.HOME, KEYS.STATS];
+  const keys = [KEYS.OVERVIEW, KEYS.FOLDERS, KEYS.HOME, KEYS.STATS, KEYS.ROOT_ITEMS];
   cache.drop(...keys);
+  cache.dropByPrefix(KEYS.FOLDER_DETAIL);
+  cache.dropByPrefix(KEYS.FOLDER_LINKS);
   dispatch(keys);
 }
 
@@ -48,5 +51,18 @@ export function invalidateTags() {
 
 export function invalidateAll() {
   cache.drop(...ALL_KEYS);
+  cache.dropByPrefix(KEYS.FOLDER_DETAIL);
+  cache.dropByPrefix(KEYS.FOLDER_LINKS);
   dispatch(ALL_KEYS);
+}
+
+export function invalidateFolderBySlug(slug) {
+  if (!slug) return;
+  cache.dropByPrefix(KEYS.FOLDER_DETAIL + slug);
+  cache.dropByPrefix(KEYS.FOLDER_LINKS + slug);
+}
+
+export function invalidateFolderCaches() {
+  cache.dropByPrefix(KEYS.FOLDER_DETAIL);
+  cache.dropByPrefix(KEYS.FOLDER_LINKS);
 }

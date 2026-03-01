@@ -43,7 +43,7 @@ export default function HeaderDesktop({
     const getCurrentView = useCallback(() => {
         const path = location.pathname;
         if (path.includes('/home') || path === '/dashboard' || path === '/dashboard/') return 'home';
-        if (path.includes('/my-files')) return 'myfiles';
+        if (path.includes('/myfiles')) return 'myfiles';
         if (path.includes('/all')) return 'all';
         if (path.includes('/starred')) return 'starred';
         if (path.includes('/recent')) return 'recent';

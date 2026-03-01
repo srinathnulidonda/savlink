@@ -1,9 +1,14 @@
 // src/services/folders.service.js
+
 import apiService from '../utils/api';
 import { config } from '../config/config';
+import { cache, KEYS, STALE_TIMES } from '../cache';
 import { invalidateFolders } from '../cache';
 
 const BASE = config.endpoints.links.collections;
+
+// ═══ Prefetch state (prevents duplicate prefetches) ═══
+const _prefetching = new Set();
 
 class FoldersService {
   async getFolders() {
@@ -36,6 +41,53 @@ class FoldersService {
       return { success: true, data: response.data.data };
     }
     return { success: false, error: response.error || 'Folder not found' };
+  }
+
+  // ═══ NEW: Combined folder + links in one call ═══
+  async getFolderFull(slug, params = {}) {
+    const response = await apiService.get(
+      `${BASE}/s/${encodeURIComponent(slug)}/full`,
+      params
+    );
+    if (response.success && response.data?.data) {
+      return { success: true, data: response.data.data };
+    }
+    return { success: false, error: response.error || 'Folder not found' };
+  }
+
+  // ═══ NEW: Prefetch folder data on hover ═══
+  prefetchFolder(slug) {
+    if (!slug) return;
+    const cacheKey = KEYS.FOLDER_DETAIL + slug;
+
+    // Skip if already cached and fresh, or already prefetching
+    if (_prefetching.has(slug)) return;
+    if (cache.has(cacheKey) && !cache.isStale(cacheKey, STALE_TIMES.FOLDER_DETAIL)) return;
+
+    _prefetching.add(slug);
+
+    this.getFolderFull(slug, { sort: 'title', order: 'asc', limit: 30 })
+      .then(result => {
+        if (result.success) {
+          cache.set(cacheKey, {
+            folder: result.data.folder,
+            children: result.data.children,
+            breadcrumb: result.data.breadcrumb,
+            parent: result.data.parent,
+            stats: result.data.stats,
+          });
+          // Cache links too
+          const lk = KEYS.FOLDER_LINKS + `${slug}:title:asc:`;
+          cache.set(lk, {
+            links: result.data.links || [],
+            meta: result.data.links_meta || { has_more: false, next_cursor: null, total: null },
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        _prefetching.delete(slug);
+      });
   }
 
   async getRootItems(params = {}) {

@@ -22,10 +22,11 @@ const LinkCard = memo(forwardRef(function LinkCard({
   const time = link.relative_time || timeAgo(link.created_at);
 
   const handleContextMenu = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!contextMenu?.open) return;
-    contextMenu.open(e, getMenuItems(link), { linkId: link.id });
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.innerWidth < 768) return;
+      if (!contextMenu?.open) return;
+      contextMenu.open(e, getMenuItems(link), { linkId: link.id });
   }, [contextMenu, getMenuItems, link]);
 
   const handleCheckbox = useCallback((e) => { e.stopPropagation(); onSelect?.(e); }, [onSelect]);
@@ -102,7 +103,7 @@ const LinkCard = memo(forwardRef(function LinkCard({
           <span className="text-[11px] text-gray-600 tabular-nums min-w-[32px] text-right">{time}</span>
         </div>
         <div className="flex-shrink-0 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-          <LinkActions link={link} onPin={onPin} onStar={onStar} onArchive={onArchive} onDelete={onDelete} />
+          <LinkActions link={link} onPin={onPin} onStar={onStar} onArchive={onArchive} onDelete={onDelete} onSelect={() => onSelectById?.(link.id)} />
         </div>
       </motion.div>
     );
@@ -138,7 +139,7 @@ const LinkCard = memo(forwardRef(function LinkCard({
             <Checkbox checked={isSelected} onClick={handleCheckbox} />
           </div>
           <div className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-            <LinkActions link={link} onPin={onPin} onStar={onStar} onArchive={onArchive} onDelete={onDelete} />
+            <LinkActions link={link} onPin={onPin} onStar={onStar} onArchive={onArchive} onDelete={onDelete} onSelect={() => onSelectById?.(link.id)} />
           </div>
         </div>
       </div>

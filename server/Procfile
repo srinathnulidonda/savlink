@@ -1,1 +1,1 @@
-web: gunicorn run:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 60 --log-level info --access-logfile - --error-logfile -
+web: gunicorn run:app -c gunicorn.conf.py

@@ -3,8 +3,8 @@ import { useCallback, useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-/* ── Exported constant so other components (FAB, content area)
-      can offset themselves above the nav ────────────────────── */
+/*  Exported constant so other components (FAB, content area)
+      can offset themselves above the nav  */
 export const BOTTOM_NAV_HEIGHT = 56; // Tailwind h-14
 
 export default function MobileBottomNav() {
@@ -12,7 +12,7 @@ export default function MobileBottomNav() {
     const navigate = useNavigate();
     const [isMobile, setIsMobile] = useState(false);
 
-    // ── Only render on mobile ───────────────────────────────
+    //  Only render on mobile 
     useEffect(() => {
         const check = () => setIsMobile(window.innerWidth < 768);
         check();
@@ -20,14 +20,14 @@ export default function MobileBottomNav() {
         return () => window.removeEventListener('resize', check);
     }, []);
 
-    // ── Haptic feedback (Android / supported browsers) ──────
+    //  Haptic feedback (Android / supported browsers) 
     const haptic = useCallback(() => {
         try {
             navigator?.vibrate?.(4);
         } catch { /* silent */ }
     }, []);
 
-    // ── Nav items ───────────────────────────────────────────
+    //  Nav items 
     const navItems = useMemo(() => [
         {
             id: 'home',
@@ -127,7 +127,7 @@ export default function MobileBottomNav() {
         {
             id: 'files',
             label: 'Files',
-            path: '/dashboard/my-files',
+            path: '/dashboard/myfiles',
             activeIcon: (
                 <svg className="w-[22px] h-[22px]" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M19.5 21a3 3 0 003-3v-4.5a3 3 0 00-3-3h-15a3 3 0
@@ -156,7 +156,7 @@ export default function MobileBottomNav() {
         },
     ], []);
 
-    // ── Active-state matcher ────────────────────────────────
+    //  Active-state matcher 
     const isActive = useCallback((item) => {
         const p = location.pathname;
         switch (item.id) {
@@ -167,7 +167,7 @@ export default function MobileBottomNav() {
             case 'short':
                 return p.includes('/links/shortened');
             case 'files':
-                return p.includes('/my-files');
+                return p.includes('/myfiles');
             default:
                 return false;
         }
@@ -181,7 +181,7 @@ export default function MobileBottomNav() {
             role="tablist"
             aria-label="Main navigation"
         >
-            {/* ── Glassmorphism background ────────────────── */}
+            {/*  Glassmorphism background  */}
             <div
                 className="absolute inset-0 border-t border-white/[0.04]"
                 style={{
@@ -191,7 +191,7 @@ export default function MobileBottomNav() {
                 }}
             />
 
-            {/* ── Items row ──────────────────────────────── */}
+            {/*  Items row  */}
             <div
                 className="relative flex items-stretch"
                 style={{
@@ -225,7 +225,7 @@ export default function MobileBottomNav() {
                             aria-selected={active}
                             aria-label={item.label}
                         >
-                            {/* ── Top indicator bar ──────── */}
+                            {/*  Top indicator bar  */}
                             {active && (
                                 <motion.div
                                     layoutId="mobileNavIndicator"
@@ -242,7 +242,7 @@ export default function MobileBottomNav() {
                                 />
                             )}
 
-                            {/* ── Icon ────────────────────── */}
+                            {/*  Icon  */}
                             <motion.div
                                 animate={{
                                     scale: active ? 1.05 : 1,
@@ -255,7 +255,7 @@ export default function MobileBottomNav() {
                                 {active ? item.activeIcon : item.inactiveIcon}
                             </motion.div>
 
-                            {/* ── Label ───────────────────── */}
+                            {/*  Label  */}
                             <span
                                 className={`
                                     text-[10px] leading-none font-medium
@@ -266,7 +266,7 @@ export default function MobileBottomNav() {
                                 {item.label}
                             </span>
 
-                            {/* ── Badge (optional) ────────── */}
+                            {/*  Badge (optional)  */}
                             {item.badge != null && item.badge > 0 && (
                                 <span
                                     className="absolute top-[5px] left-1/2 ml-[7px]

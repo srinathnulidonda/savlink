@@ -1,7 +1,9 @@
 # server/app/cache/redis_layer.py
+
 import json
 import time
 import logging
+import hashlib
 from typing import Any, Optional, List
 
 from app.extensions import redis_client
@@ -11,7 +13,11 @@ logger = logging.getLogger(__name__)
 _local_cache: dict = {}
 _local_ttls: dict = {}
 LOCAL_MAX = 200
-LOCAL_TTL = 3  # reduced from 10 to 3 seconds to limit stale window
+LOCAL_TTL = 3
+
+# ═══ Stampede lock tracking ═══
+_locks: dict = {}
+LOCK_TTL = 10
 
 
 class cache:
@@ -43,7 +49,9 @@ class cache:
         if not redis_client.available:
             return False
         try:
-            return redis_client.setex(key, ttl, json.dumps(data, default=str)) is not False
+            return redis_client.setex(
+                key, ttl, json.dumps(data, default=str)
+            ) is not False
         except Exception as e:
             logger.warning("cache.put(%s) error: %s", key, e)
             return False
@@ -87,6 +95,37 @@ class cache:
         if data is not None:
             cache.put(key, data, ttl)
         return data
+
+    @staticmethod
+    def get_or_set_locked(key: str, factory, ttl: int = 300):
+        """
+        Cache stampede protection.
+        Only one caller computes; others wait or get stale data.
+        """
+        data = cache.get(key)
+        if data is not None:
+            return data
+
+        lock_key = f'lock:{key}'
+        now = time.time()
+
+        # Check in-memory lock
+        if lock_key in _locks and _locks[lock_key] > now:
+            # Someone else is computing — wait briefly then return whatever
+            time.sleep(0.1)
+            data = cache.get(key)
+            return data
+
+        # Acquire lock
+        _locks[lock_key] = now + LOCK_TTL
+
+        try:
+            data = factory()
+            if data is not None:
+                cache.put(key, data, ttl)
+            return data
+        finally:
+            _locks.pop(lock_key, None)
 
     @staticmethod
     def incr_counter(key: str, ttl: int = 86400) -> int:

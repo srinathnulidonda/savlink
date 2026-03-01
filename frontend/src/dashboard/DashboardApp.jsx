@@ -178,13 +178,13 @@ export default function Dashboard() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/home" element={<HomePage />} />
-        <Route path="/my-files" element={
+        <Route path="/myfiles" element={
           <MyFiles
             onAddLink={() => setIsAddLinkOpen(true)}
             onCreateFolder={openCreateFolder}
           />
         } />
-        <Route path="/my-files/:slug" element={
+        <Route path="/myfiles/:slug" element={
           <CollectionView
             viewMode={viewMode}
             onAddLink={() => setIsAddLinkOpen(true)}
@@ -193,7 +193,7 @@ export default function Dashboard() {
         } />
         <Route path="/links/:filterView" element={<LinksPageWrapper {...linkViewProps} />} />
         {/* Legacy redirect */}
-        <Route path="/collections/:id" element={<Navigate to="/dashboard/my-files" replace />} />
+        <Route path="/collections/:id" element={<Navigate to="/dashboard/myfiles" replace />} />
         <Route path="/settings" element={<div>Settings</div>} />
         <Route path="*" element={<Navigate to="/dashboard/home" replace />} />
       </Routes>

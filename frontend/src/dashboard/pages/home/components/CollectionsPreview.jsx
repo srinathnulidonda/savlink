@@ -17,7 +17,7 @@ export default function CollectionsPreview({ collections = [] }) {
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-800/30">
         <h2 className="text-[13px] font-medium text-gray-300">Folders</h2>
         {collections.length > 4 && (
-          <button onClick={() => navigate('/dashboard/my-files')}
+          <button onClick={() => navigate('/dashboard/myfiles')}
             className="text-[12px] text-gray-600 hover:text-gray-400 transition-colors flex items-center gap-1 group">
             View all
             <svg className="w-3 h-3 group-hover:translate-x-0.5 transition-transform"
@@ -44,7 +44,7 @@ export default function CollectionsPreview({ collections = [] }) {
           {collections.slice(0, 6).map((col, i) => (
             <motion.button key={col.id}
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
-              onClick={() => navigate(`/dashboard/my-files/${col.slug}`)}
+              onClick={() => navigate(`/dashboard/myfiles/${col.slug}`)}
               className="flex items-center gap-3 px-5 py-3.5 bg-gray-950/80 hover:bg-white/[0.02] transition-colors text-left group">
               <div className="w-10 h-10 rounded-xl bg-gray-800/40 border border-gray-800/50 flex items-center justify-center flex-shrink-0 group-hover:border-gray-700/50 group-hover:bg-gray-800/60 transition-all">
                 <span className="text-lg leading-none">{displayIcon(col.icon)}</span>

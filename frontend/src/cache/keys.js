@@ -9,6 +9,9 @@ export const KEYS = {
   RECENT: 'recent',
   FOLDERS: 'folders',
   TAGS: 'tags',
+  ROOT_ITEMS: 'root_items',
+  FOLDER_DETAIL: 'folder_detail:',
+  FOLDER_LINKS: 'folder_links:',
 };
 
 export const STALE_TIMES = {
@@ -17,6 +20,9 @@ export const STALE_TIMES = {
   STATS: 120_000,
   FOLDERS: 300_000,
   TAGS: 300_000,
+  ROOT_ITEMS: 30_000,
+  FOLDER_DETAIL: 60_000,
+  FOLDER_LINKS: 30_000,
 };
 
 export const HOME_KEYS = [

@@ -26,7 +26,7 @@ const STEPS = [
             </svg>
         ),
         action: 'navigate',
-        path: '/dashboard/my-files',
+        path: '/dashboard/myfiles',
         actionLabel: 'Create collection',
     },
     {

@@ -1,23 +1,7 @@
 // src/dashboard/pages/collections/CollectionEmpty.jsx
 import { motion } from 'framer-motion';
 
-export default function CollectionEmpty({ folderName, onAddLink, onImport, searchQuery }) {
-  if (searchQuery) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 px-4">
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <svg className="w-12 h-12 text-gray-700 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <h3 className="text-[15px] font-medium text-gray-300 text-center mb-1">No results</h3>
-          <p className="text-[13px] text-gray-600 text-center">
-            Nothing matches "{searchQuery}" in this folder
-          </p>
-        </motion.div>
-      </div>
-    );
-  }
-
+export default function CollectionEmpty({ folderName, onAddLink, onImport,}) {
   return (
     <div className="flex flex-col items-center justify-center py-20 px-4">
       <motion.div

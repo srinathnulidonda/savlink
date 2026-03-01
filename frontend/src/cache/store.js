@@ -3,7 +3,7 @@
 const MEMORY = new Map();
 const TIMESTAMPS = new Map();
 const PREFIX = 'sl:';
-const MAX_ENTRIES = 100;
+const MAX_ENTRIES = 150;
 
 function now() {
   return Date.now();
@@ -71,6 +71,23 @@ export const cache = {
       TIMESTAMPS.delete(k);
       try { localStorage.removeItem(PREFIX + k); } catch {}
     });
+  },
+
+  dropByPrefix(prefix) {
+    const memKeys = [...MEMORY.keys()].filter(k => k.startsWith(prefix));
+    memKeys.forEach(k => {
+      MEMORY.delete(k);
+      TIMESTAMPS.delete(k);
+    });
+    try {
+      const lsPrefix = PREFIX + prefix;
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(lsPrefix)) toRemove.push(k);
+      }
+      toRemove.forEach(k => localStorage.removeItem(k));
+    } catch {}
   },
 
   clear() {
